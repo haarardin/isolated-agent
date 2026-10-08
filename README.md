@@ -200,7 +200,7 @@ For more complex installation logic, edit `images/project/Containerfile`.
 
 ## Example integration services
 
-The repository includes optional PostgreSQL + Redis services:
+The repository includes optional PostgreSQL 18 + Redis services:
 
 ```bash
 make up-example
@@ -215,6 +215,8 @@ redis:6379
 ```
 
 No database/cache ports are exposed on the host.
+
+The PostgreSQL 18 image stores version-specific data below `/var/lib/postgresql`, so the example mounts the named volume at that directory rather than the pre-18 `/var/lib/postgresql/data` location.
 
 A normal Compose network does not share a loopback namespace, so sibling services are reached by service name rather than `127.0.0.1`.
 
@@ -276,6 +278,7 @@ make ps-example
 make down
 make down-example
 make clean
+make reset-example-db
 make reset-state
 ```
 
@@ -339,3 +342,16 @@ make reset-state
 ```
 
 Both commands are scoped by `COMPOSE_PROJECT_NAME`.
+
+
+### Resetting only the example PostgreSQL data
+
+If the PostgreSQL example volume was initialized with an incompatible image/layout, reset only that database without deleting Codex state:
+
+```bash
+make reset-example-db
+make up-example
+make ps-example
+```
+
+This removes the PostgreSQL container and the Compose-labeled `postgres-data` volume for the current `COMPOSE_PROJECT_NAME`. Codex authentication/state and caches are preserved.
