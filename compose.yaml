@@ -2,22 +2,22 @@ services:
   agent:
     image: ${PROJECT_IMAGE:-localhost/isolated-agent-project:dev}
     working_dir: /workspace
-    user: "1000:1000"
-    userns_mode: "keep-id:uid=1000,gid=1000"
     stdin_open: true
     tty: true
     init: true
     command: ["sleep", "infinity"]
 
     environment:
-      HOME: /home/agent
-      GOCACHE: /home/agent/.cache/go-build
-      GOMODCACHE: /home/agent/.cache/go-mod
+      HOME: /root
+      CODEX_HOME: /root/.codex
+      GOCACHE: /root/.cache/go-build
+      GOMODCACHE: /root/.cache/go-mod
+      GOPATH: /root/.cache/go
 
     volumes:
       - ${PROJECT_DIR:-./workspace}:/workspace:rw
-      - codex-state:/home/agent/.codex:U
-      - agent-cache:/home/agent/.cache:U
+      - codex-state:/root/.codex
+      - agent-cache:/root/.cache
 
     read_only: true
 
