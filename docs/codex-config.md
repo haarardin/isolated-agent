@@ -54,14 +54,10 @@ The initial skeleton uses:
 model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "high"
 approval_policy = "never"
-sandbox_mode = "workspace-write"
+sandbox_mode = "danger-full-access"
 file_opener = "none"
 web_search = "cached"
 project_doc_max_bytes = 65536
-
-[sandbox_workspace_write]
-network_access = true
-writable_roots = ["/root/.cache"]
 
 [shell_environment_policy]
 ignore_default_excludes = false
@@ -74,14 +70,14 @@ Rationale:
 
 - the outer rootless Podman container is the primary host security boundary;
 - `approval_policy = "never"` allows unattended/non-interactive tasks;
-- `workspace-write` preserves Codex's own sandbox as a second layer;
-- network access is required for normal development tasks and project-service access;
-- build caches live in a persistent Compose volume and therefore need to be writable;
+- `danger-full-access` disables Codex's nested Linux sandbox inside the already-isolated Podman container;
+- rootless Podman remains the effective filesystem/process/network boundary;
+- this avoids Bubblewrap failures caused by nested user/network namespace restrictions;
 - cached web search is the safer default for routine development and can be changed to `live` per project;
 - common secret-bearing environment variable names remain filtered from spawned shell commands;
 - Codex memories remain opt-in while the feature is experimental.
 
-Do not change the default to `danger-full-access` merely to work around a missing writable root. Add the required directory explicitly first.
+Do not add Podman privileges or capabilities merely to make nested Bubblewrap work. If you intentionally switch to `workspace-write`, do so only on a runtime where the Codex Linux sandbox can initialize successfully.
 
 ## Reference
 
@@ -99,3 +95,16 @@ When adding new build arguments, verify the exact key and allowed values against
 Never pass credentials through Containerfile `ARG` values.
 
 Build arguments can be retained in image/build metadata and are not designed for secrets. Keep ChatGPT/Codex authentication in the persistent `CODEX_HOME` volume and use runtime secret mechanisms for project credentials.
+
+
+## Why the default is danger-full-access
+
+On Linux, Codex's restricted sandbox uses a Bubblewrap-backed execution path. Inside rootless Podman, an additional user namespace can fail before the requested command starts, for example:
+
+```text
+bwrap: setting up uid map: Operation not permitted
+```
+
+This template already provides the outer isolation layer, so the default disables the redundant nested sandbox instead of weakening Podman with extra privileges.
+
+The setting is intentionally scoped to the Codex process **inside this container**. It does not bypass Podman's mount, capability, read-only-rootfs, or network restrictions.
