@@ -472,3 +472,19 @@ services or persistent volumes, use `make recreate-agent`.
 
 See [docs/serena.md](docs/serena.md) for architecture, permissions, project
 `.serena/` artifacts, benchmark design, and rollback steps.
+
+## Experimental OpenAI Agents API self-hosted executor (stacked PR)
+
+An optional **host-only Go control utility** creates self-hosted Agents API
+sessions and sends tasks. The running Podman agent can connect back over an
+outbound, authenticated `codex exec-server` WebSocket using a separate
+restricted environment key. This changes **nothing** about the default
+interactive Codex/Serena operation and exposes **no inbound ports**.
+
+**This is not ChatGPT Android/web Remote host registration.** The official
+Agents API requires an application to manage sessions. API inference is billed
+separately from ChatGPT subscriptions. The native-UI part of the original
+request remains unimplemented pending a supported OpenAI integration.
+
+Run offline checks with `make test-remote`, and follow
+[docs/remote-executor.md](docs/remote-executor.md) for setup and security.
