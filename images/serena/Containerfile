@@ -1,0 +1,40 @@
+# Optional Serena MCP layer for large Go codebases.
+# Reuses the already-built project image; no change to the default agent.
+ARG PROJECT_IMAGE=localhost/isolated-agent-project:dev
+FROM ${PROJECT_IMAGE}
+
+ARG SERENA_VERSION=1.7.0
+ARG GOPLS_VERSION=v0.20.0
+
+# Python is needed for Serena; avoid externally managed system Python installs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/serena/venv \
+    && /opt/serena/venv/bin/python -m pip install \
+         --no-cache-dir --disable-pip-version-check \
+         "serena-agent==${SERENA_VERSION}" \
+    && /opt/serena/venv/bin/serena --help >/dev/null
+
+# Install Go LSP into the image, NOT into /root/.cache or /root/go:
+# those paths are overmounted by persistent runtime volumes.
+RUN GOBIN=/usr/local/bin go install "golang.org/x/tools/gopls@${GOPLS_VERSION}" \
+    && /usr/local/bin/gopls version
+
+# Codex reads this image policy in addition to its persistent CODEX_HOME.
+# stdio only: no new listener, published port, or Podman socket.
+# Explicit /workspace works even for a bind-mounted non-Git test project.
+# Web dashboard and GUI are disabled for container/headless use.
+RUN printf '%s\n' \
+      '' \
+      '[mcp_servers.serena]' \
+      'command = "/opt/serena/venv/bin/serena"' \
+      'args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transport=stdio", "--enable-web-dashboard=false", "--open-web-dashboard=false", "--enable-gui-log-window=false"]' \
+      'startup_timeout_sec = 90' \
+      > /tmp/serena-mcp.toml \
+    && cat /tmp/serena-mcp.toml >> /etc/codex/config.toml \
+    && rm /tmp/serena-mcp.toml
+
+ENV PATH=/opt/serena/venv/bin:${PATH}
+
+# ENTRYPOINT and all Podman isolation settings are inherited from project image.
