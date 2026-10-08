@@ -17,6 +17,8 @@ Preserve these unless the task explicitly changes the security model:
 9. Project services should run as sibling Compose services, not inside the agent process container.
 10. Project-specific native dependencies and Codex production defaults belong in images/project/Containerfile.
 11. Codex installation belongs only in images/codex/Containerfile.
+12. Rootless Podman is the primary sandbox. Do not add privileged mode, host runtime sockets, or broad Linux capabilities to make Codex's nested Bubblewrap sandbox work.
+13. The default Codex sandbox mode is `danger-full-access` inside the container; changing it to `workspace-write` requires verifying nested sandbox compatibility.
 
 ## Validation
 
