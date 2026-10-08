@@ -1,4 +1,7 @@
 PODMAN ?= podman
+PODMAN_COMPOSE_PROVIDER ?= podman-compose
+export PODMAN_COMPOSE_PROVIDER
+
 COMPOSE ?= $(PODMAN) compose
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
@@ -24,7 +27,7 @@ help:
 	  'make reset-state    Delete containers and named volumes'
 
 preflight:
-	@./scripts/preflight.sh
+	@bash scripts/preflight.sh
 
 build: build-base build-codex build-project
 
