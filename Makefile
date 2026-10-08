@@ -29,7 +29,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight build build-base build-codex build-project up up-example down down-example login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: help preflight build build-base build-codex build-project up up-example down down-example clean login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -45,8 +45,10 @@ help:
 	  'make race           Run Go race tests' \
 	  'make integration    Run project integration tests' \
 	  'make logs           Follow compose logs' \
-	  'make down           Stop the environment' \
-	  'make reset-state    Delete containers and named volumes'
+	  'make down           Stop the base agent environment' \
+	  'make down-example   Stop agent + example services' \
+	  'make clean          Force-clean this Compose project, keep volumes' \
+	  'make reset-state    Force-clean this Compose project and volumes'
 
 preflight:
 	@bash scripts/preflight.sh
@@ -102,6 +104,9 @@ down:
 down-example:
 	$(COMPOSE_EXAMPLE) down
 
+clean:
+	@bash scripts/cleanup.sh
+
 login:
 	$(COMPOSE) exec agent codex login --device-auth
 
@@ -133,4 +138,4 @@ ps-example:
 	$(COMPOSE_EXAMPLE) ps
 
 reset-state:
-	$(COMPOSE) down -v --remove-orphans
+	@bash scripts/cleanup.sh --volumes
