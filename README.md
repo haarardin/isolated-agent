@@ -458,10 +458,17 @@ make serena-doctor
 make codex-serena
 ```
 
-`make up-serena-example` replaces **only the agent container** to switch
-images; do not run it while a Codex session is active. Existing source files
+For the first Serena start on an **empty** Compose project, bootstrap
+the PostgreSQL/Redis examples once with `make up-example`.
+Subsequent `make up-serena-example` invocations recreate **only the agent
+container**. This avoids duplicate PostgreSQL/Redis container-name
+errors seen with `podman-compose up -d` on some versions.
+Do not switch while a Codex session is active. Existing source files
 and Codex state volumes persist. The optional Compose overlay adds a separate
 `serena-state` volume at `/root/.serena`.
+
+To switch back to the plain project image without touching running example
+services or persistent volumes, use `make recreate-agent`.
 
 See [docs/serena.md](docs/serena.md) for architecture, permissions, project
 `.serena/` artifacts, benchmark design, and rollback steps.
