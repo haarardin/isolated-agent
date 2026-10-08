@@ -1,0 +1,19 @@
+name: Serena static integration checks
+
+on:
+  push:
+    branches: [feat/serena-mcp-integration]
+  pull_request:
+    branches: [feat/initial-skeleton]
+  workflow_dispatch:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate optional Serena configuration
+        run: make test-serena-static

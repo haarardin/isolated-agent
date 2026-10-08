@@ -1,0 +1,46 @@
+services:
+  agent:
+    image: ${PROJECT_IMAGE:-localhost/isolated-agent-project:dev}
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    init: true
+    command: ["sleep", "infinity"]
+
+    environment:
+      HOME: /root
+      CODEX_HOME: /root/.codex
+      GOCACHE: /root/.cache/go-build
+      GOMODCACHE: /root/.cache/go-mod
+      GOPATH: /root/.cache/go
+
+    volumes:
+      - ${PROJECT_DIR:-./workspace}:/workspace:rw
+      - codex-state:/root/.codex
+      - agent-cache:/root/.cache
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=64m
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    networks:
+      - isolated-dev
+
+volumes:
+  codex-state:
+  agent-cache:
+
+networks:
+  isolated-dev:
+    internal: false
+
+x-podman:
+  in_pod: false

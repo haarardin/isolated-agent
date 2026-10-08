@@ -1,0 +1,10 @@
+# Opt-in overlay: podman-compose -f compose.yaml -f compose.serena.yaml ...
+# Keeps the default agent unchanged when this file is absent.
+services:
+  agent:
+    image: ${SERENA_IMAGE:-localhost/isolated-agent-serena:dev}
+    volumes:
+      - serena-state:/root/.serena
+
+volumes:
+  serena-state:

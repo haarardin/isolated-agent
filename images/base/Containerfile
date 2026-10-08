@@ -1,0 +1,41 @@
+ARG GO_IMAGE=docker.io/library/golang:1.27-bookworm
+FROM ${GO_IMAGE}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       bash \
+       build-essential \
+       ca-certificates \
+       curl \
+       fd-find \
+       git \
+       iproute2 \
+       iputils-ping \
+       jq \
+       less \
+       make \
+       netcat-openbsd \
+       openssh-client \
+       pkg-config \
+       procps \
+       ripgrep \
+       tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p \
+    /workspace \
+    /root/.cache \
+    /root/.codex \
+    /etc/codex \
+    /opt/isolated-agent
+
+ENV HOME=/root
+ENV CODEX_HOME=/root/.codex
+ENV GOCACHE=/root/.cache/go-build
+ENV GOMODCACHE=/root/.cache/go-mod
+ENV GOPATH=/root/.cache/go
+ENV PATH=/root/.local/bin:/root/.cache/go/bin:${PATH}
+
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]

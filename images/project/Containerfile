@@ -1,0 +1,69 @@
+ARG CODEX_IMAGE=localhost/isolated-agent-codex:dev
+FROM ${CODEX_IMAGE}
+
+# Project/runtime customization. These values become system-level Codex defaults
+# in /etc/codex/config.toml. User/project config can still override them according
+# to Codex configuration precedence.
+ARG PROJECT_APT_PACKAGES=""
+ARG CODEX_AGENTS_FILE=templates/AGENTS.project.md
+ARG CODEX_MODEL=""
+ARG CODEX_MODEL_REASONING_EFFORT=high
+ARG CODEX_PLAN_REASONING_EFFORT=high
+ARG CODEX_MODEL_VERBOSITY=""
+ARG CODEX_PERSONALITY=""
+ARG CODEX_REVIEW_MODEL=""
+ARG CODEX_SERVICE_TIER=""
+ARG CODEX_FILE_OPENER=none
+ARG CODEX_APPROVAL_POLICY=never
+ARG CODEX_SANDBOX_MODE=danger-full-access
+ARG CODEX_NETWORK_ACCESS=true
+ARG CODEX_WEB_SEARCH=cached
+ARG CODEX_PROJECT_DOC_MAX_BYTES=65536
+ARG CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES=false
+ARG CODEX_FEATURE_MEMORIES=false
+
+RUN if [ -n "${PROJECT_APT_PACKAGES}" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends ${PROJECT_APT_PACKAGES} \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+COPY ${CODEX_AGENTS_FILE} /opt/isolated-agent/AGENTS.md
+COPY images/project/entrypoint.sh /usr/local/bin/isolated-agent-entrypoint
+
+RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint \
+    && mkdir -p /etc/codex /opt/isolated-agent \
+    && { \
+      if [ -n "${CODEX_MODEL}" ]; then printf 'model = "%s"\n' "${CODEX_MODEL}"; fi; \
+      printf 'model_reasoning_effort = "%s"\n' "${CODEX_MODEL_REASONING_EFFORT}"; \
+      printf 'plan_mode_reasoning_effort = "%s"\n' "${CODEX_PLAN_REASONING_EFFORT}"; \
+      if [ -n "${CODEX_MODEL_VERBOSITY}" ]; then printf 'model_verbosity = "%s"\n' "${CODEX_MODEL_VERBOSITY}"; fi; \
+      if [ -n "${CODEX_PERSONALITY}" ]; then printf 'personality = "%s"\n' "${CODEX_PERSONALITY}"; fi; \
+      if [ -n "${CODEX_REVIEW_MODEL}" ]; then printf 'review_model = "%s"\n' "${CODEX_REVIEW_MODEL}"; fi; \
+      if [ -n "${CODEX_SERVICE_TIER}" ]; then printf 'service_tier = "%s"\n' "${CODEX_SERVICE_TIER}"; fi; \
+      printf 'file_opener = "%s"\n' "${CODEX_FILE_OPENER}"; \
+      printf 'approval_policy = "%s"\n' "${CODEX_APPROVAL_POLICY}"; \
+      printf 'sandbox_mode = "%s"\n' "${CODEX_SANDBOX_MODE}"; \
+      printf 'web_search = "%s"\n' "${CODEX_WEB_SEARCH}"; \
+      printf 'project_doc_max_bytes = %s\n' "${CODEX_PROJECT_DOC_MAX_BYTES}"; \
+      if [ "${CODEX_SANDBOX_MODE}" = "workspace-write" ]; then \
+        printf '\n[sandbox_workspace_write]\n'; \
+        printf 'network_access = %s\n' "${CODEX_NETWORK_ACCESS}"; \
+        printf 'writable_roots = ["/root/.cache"]\n'; \
+      fi; \
+      printf '\n[shell_environment_policy]\n'; \
+      printf 'ignore_default_excludes = %s\n' "${CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES}"; \
+      printf '\n[features]\n'; \
+      printf 'memories = %s\n' "${CODEX_FEATURE_MEMORIES}"; \
+    } > /etc/codex/config.toml
+
+ENV HOME=/root \
+    CODEX_HOME=/root/.codex \
+    GOCACHE=/root/.cache/go-build \
+    GOMODCACHE=/root/.cache/go-mod \
+    GOPATH=/root/.cache/go \
+    PATH=/root/.local/bin:/root/.cache/go/bin:${PATH}
+
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/isolated-agent-entrypoint"]
+CMD ["sleep", "infinity"]
