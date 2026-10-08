@@ -29,7 +29,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight build build-base build-codex build-project up up-example down down-example clean login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: help preflight build build-base build-codex build-project up up-example down down-example clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -48,6 +48,7 @@ help:
 	  'make down           Stop the base agent environment' \
 	  'make down-example   Stop agent + example services' \
 	  'make clean          Force-clean this Compose project, keep volumes' \
+	  'make reset-example-db Delete only example PostgreSQL data' \
 	  'make reset-state    Force-clean this Compose project and volumes'
 
 preflight:
@@ -106,6 +107,9 @@ down-example:
 
 clean:
 	@bash scripts/cleanup.sh
+
+reset-example-db:
+	@bash scripts/reset-example-db.sh
 
 login:
 	$(COMPOSE) exec agent codex login --device-auth
