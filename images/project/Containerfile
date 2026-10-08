@@ -1,0 +1,17 @@
+ARG CODEX_IMAGE=localhost/isolated-agent-codex:dev
+FROM ${CODEX_IMAGE}
+
+# Add only target-project-specific dependencies in this layer.
+#
+# Example:
+#
+# USER root
+# RUN apt-get update \
+#     && apt-get install -y --no-install-recommends libpq-dev \
+#     && rm -rf /var/lib/apt/lists/*
+# USER agent
+
+USER agent
+WORKDIR /workspace
+
+CMD ["sleep", "infinity"]
