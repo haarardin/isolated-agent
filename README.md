@@ -44,10 +44,10 @@ That keeps Codex upgrades separate from slower project/runtime dependencies.
 ## Requirements
 
 - Linux
-- rootless Podman recommended
-- a Compose provider usable through `podman compose`
+- rootless Podman
+- `podman-compose` available as the Compose provider
 
-Podman Compose is a wrapper around an external Compose provider, so install either `podman-compose` or another compatible provider on the host.
+`podman compose` is a wrapper around an external provider. This template defaults to `podman-compose` so Podman-specific features such as `keep-id` and `x-podman.in_pod` behave consistently. Override `PODMAN_COMPOSE_PROVIDER` only if the replacement provider supports the same semantics.
 
 ## Quick start
 
@@ -159,7 +159,9 @@ Set a unique `COMPOSE_PROJECT_NAME` per project.
 
 The default agent container:
 
+- requires rootless Podman;
 - runs as a non-root user;
+- uses Podman's `keep-id` user namespace mapping so the container user can edit the bind-mounted project without changing host ownership;
 - drops Linux capabilities;
 - enables `no-new-privileges`;
 - uses a read-only root filesystem;
