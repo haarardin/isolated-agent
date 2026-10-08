@@ -1,0 +1,9 @@
+.env
+compose.local.yaml
+
+workspace/*
+!workspace/.gitkeep
+
+*.swp
+*.swo
+.DS_Store
