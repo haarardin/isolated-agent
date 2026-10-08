@@ -1,9 +1,6 @@
 ARG GO_IMAGE=docker.io/library/golang:1.27-bookworm
 FROM ${GO_IMAGE}
 
-ARG AGENT_UID=1000
-ARG AGENT_GID=1000
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        bash \
@@ -25,23 +22,20 @@ RUN apt-get update \
        tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid "${AGENT_GID}" agent \
-    && useradd --uid "${AGENT_UID}" --gid "${AGENT_GID}" \
-       --create-home --shell /bin/bash agent \
-    && mkdir -p \
-       /workspace \
-       /home/agent/.cache \
-       /home/agent/.codex \
-    && chown -R agent:agent \
-       /workspace \
-       /home/agent
+RUN mkdir -p \
+    /workspace \
+    /root/.cache \
+    /root/.codex \
+    /etc/codex \
+    /opt/isolated-agent
 
-ENV HOME=/home/agent
-ENV GOCACHE=/home/agent/.cache/go-build
-ENV GOMODCACHE=/home/agent/.cache/go-mod
-ENV PATH=/home/agent/.local/bin:${PATH}
+ENV HOME=/root
+ENV CODEX_HOME=/root/.codex
+ENV GOCACHE=/root/.cache/go-build
+ENV GOMODCACHE=/root/.cache/go-mod
+ENV GOPATH=/root/.cache/go
+ENV PATH=/root/.local/bin:/root/.cache/go/bin:${PATH}
 
-USER agent
 WORKDIR /workspace
 
 CMD ["sleep", "infinity"]
