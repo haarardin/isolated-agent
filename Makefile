@@ -34,7 +34,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor down-serena down-serena-example
+.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -46,6 +46,7 @@ help:
 	  'make up-serena-example Switch agent; start example services' \
 	  'make codex-serena   Open Codex with Serena available' \
 	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
+	  'make test-serena-static Check optional integration without Podman' \
 	  'make up             Start the isolated agent' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
 	  'make ps-example     Show agent + example services' \
@@ -136,6 +137,9 @@ codex-serena:
 
 serena-doctor:
 	@bash scripts/serena-doctor.sh
+
+test-serena-static:
+	@bash scripts/test-serena-static.sh
 
 ps-serena:
 	$(COMPOSE_SERENA) ps
