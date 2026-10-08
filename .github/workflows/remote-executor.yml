@@ -1,0 +1,24 @@
+name: Remote executor static and Go tests
+
+on:
+  push:
+    branches: [feat/openai-remote-executor]
+  pull_request:
+    branches: [feat/initial-skeleton]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Static isolation checks
+        run: bash scripts/test-remote-static.sh
+      - name: Go unit and race tests
+        working-directory: tools/remote-session
+        run: go test -race ./...
