@@ -275,6 +275,7 @@ make ps
 make ps-example
 make down
 make down-example
+make clean
 make reset-state
 ```
 
@@ -315,3 +316,26 @@ bash scripts/compose.sh \
 ```
 
 Do not use an unqualified `podman compose ...` command as a project instruction. On hosts that also have Docker Compose installed, Podman may choose `docker-compose` first, which then expects the Podman API socket.
+
+
+## Recovering a partially removed stack
+
+If a Compose `down` was run with a different set of compose files than the corresponding `up`, some project containers can remain attached to the project network.
+
+Use:
+
+```bash
+make clean
+```
+
+This does not rely on the Compose model. It finds containers and networks carrying the current project's `io.podman.compose.project` label and removes only those resources.
+
+Persistent volumes are deliberately kept.
+
+To also delete the project's Codex state/cache/database volumes:
+
+```bash
+make reset-state
+```
+
+Both commands are scoped by `COMPOSE_PROJECT_NAME`.
