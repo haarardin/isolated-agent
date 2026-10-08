@@ -397,3 +397,30 @@ Do not solve nested Bubblewrap failures by adding privileged mode, host runtime 
 ### Credential caveat
 
 With Codex's inner sandbox disabled, commands run by the agent share the container security domain with Codex itself. Treat the container as a trusted development sandbox, avoid mounting unrelated secrets, keep host credentials out of it, and prefer narrowly scoped credentials when this project moves to remote/self-hosted execution.
+
+
+## Agent-only lifecycle
+
+`podman-compose` does not implement Docker Compose's `rm` subcommand. For agent persistence/recreation tests, use the project targets instead:
+
+```bash
+make stop-agent
+make remove-agent
+make ps-example
+make up-example
+```
+
+Or recreate only the agent in one command:
+
+```bash
+make recreate-agent
+```
+
+`remove-agent` resolves the container by the current project's Compose labels:
+
+```text
+io.podman.compose.project=<COMPOSE_PROJECT_NAME>
+io.podman.compose.service=agent
+```
+
+so it does not depend on generated container names and does not remove PostgreSQL, Redis, networks, or volumes.
