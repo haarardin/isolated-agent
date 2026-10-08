@@ -29,11 +29,12 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight build build-base build-codex build-project up up-example down down-example clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
+	  'make doctor         Check the running agent toolchain/runtime' \
 	  'make build          Build all image layers' \
 	  'make up             Start the isolated agent' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
@@ -53,6 +54,9 @@ help:
 
 preflight:
 	@bash scripts/preflight.sh
+
+doctor:
+	@bash scripts/doctor.sh
 
 build: build-base build-codex build-project
 
@@ -121,13 +125,13 @@ shell:
 	$(COMPOSE) exec agent bash
 
 test:
-	$(COMPOSE) exec agent bash -lc 'if [ -f Makefile ] && grep -qE "^test:" Makefile; then make test; else go test ./...; fi'
+	$(COMPOSE) exec agent bash -c 'if [ -f Makefile ] && grep -qE "^test:" Makefile; then make test; else go test ./...; fi'
 
 race:
 	$(COMPOSE) exec agent go test -race ./...
 
 integration:
-	$(COMPOSE) exec agent bash -lc 'if [ -f Makefile ] && grep -qE "^integration:" Makefile; then make integration; else go test -tags=integration ./...; fi'
+	$(COMPOSE) exec agent bash -c 'if [ -f Makefile ] && grep -qE "^integration:" Makefile; then make integration; else go test -tags=integration ./...; fi'
 
 logs:
 	$(COMPOSE) logs -f
