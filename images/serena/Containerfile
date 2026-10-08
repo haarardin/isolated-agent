@@ -10,6 +10,7 @@ ARG GOPLS_VERSION=v0.20.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /root/.serena \
     && python3 -m venv /opt/serena/venv \
     && /opt/serena/venv/bin/python -m pip install \
          --no-cache-dir --disable-pip-version-check \
