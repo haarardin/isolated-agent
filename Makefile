@@ -4,10 +4,8 @@ export
 endif
 
 PODMAN ?= podman
-PODMAN_COMPOSE_PROVIDER ?= podman-compose
-export PODMAN_COMPOSE_PROVIDER
-
-COMPOSE ?= $(PODMAN) compose
+COMPOSE ?= bash scripts/compose.sh
+COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
@@ -31,7 +29,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight build build-base build-codex build-project up up-example down login codex shell test race integration logs ps reset-state
+.PHONY: help preflight build build-base build-codex build-project up up-example down down-example login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -39,6 +37,7 @@ help:
 	  'make build          Build all image layers' \
 	  'make up             Start the isolated agent' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
+	  'make ps-example     Show agent + example services' \
 	  'make login          Authenticate Codex using device flow' \
 	  'make codex          Open interactive Codex CLI' \
 	  'make shell          Open a shell inside the agent' \
@@ -95,10 +94,13 @@ up:
 	$(COMPOSE) up -d agent
 
 up-example:
-	$(COMPOSE) -f compose.yaml -f compose.example-services.yaml up -d
+	$(COMPOSE_EXAMPLE) up -d
 
 down:
 	$(COMPOSE) down
+
+down-example:
+	$(COMPOSE_EXAMPLE) down
 
 login:
 	$(COMPOSE) exec agent codex login --device-auth
@@ -121,8 +123,14 @@ integration:
 logs:
 	$(COMPOSE) logs -f
 
+logs-example:
+	$(COMPOSE_EXAMPLE) logs -f
+
 ps:
 	$(COMPOSE) ps
+
+ps-example:
+	$(COMPOSE_EXAMPLE) ps
 
 reset-state:
 	$(COMPOSE) down -v --remove-orphans
