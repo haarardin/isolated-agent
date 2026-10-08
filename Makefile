@@ -29,7 +29,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -39,6 +39,9 @@ help:
 	  'make up             Start the isolated agent' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
 	  'make ps-example     Show agent + example services' \
+	  'make stop-agent     Stop only the agent container' \
+	  'make remove-agent   Remove only the agent container' \
+	  'make recreate-agent Recreate only the agent container' \
 	  'make login          Authenticate Codex using device flow' \
 	  'make codex          Open interactive Codex CLI' \
 	  'make shell          Open a shell inside the agent' \
@@ -108,6 +111,16 @@ down:
 
 down-example:
 	$(COMPOSE_EXAMPLE) down
+
+stop-agent:
+	$(COMPOSE_EXAMPLE) stop agent
+
+remove-agent:
+	@bash scripts/remove-service.sh agent
+
+recreate-agent:
+	@bash scripts/remove-service.sh agent
+	$(COMPOSE_EXAMPLE) up -d agent
 
 clean:
 	@bash scripts/cleanup.sh
