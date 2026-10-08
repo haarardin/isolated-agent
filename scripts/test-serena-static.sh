@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Static validation; no container engine or external downloads needed.
-bash -n scripts/serena-doctor.sh scripts/compose.sh scripts/remove-service.sh
+for script in scripts/serena-doctor.sh scripts/compose.sh scripts/remove-service.sh; do
+  bash -n "$script"
+done
 
 grep -Fq '[mcp_servers.serena]' images/serena/Containerfile
 grep -Fq 'serena-agent==${SERENA_VERSION}' images/serena/Containerfile
