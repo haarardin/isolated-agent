@@ -34,13 +34,16 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state remote-session-create remote-session-send remote-session-status remote-session-watch remote-exec test-remote build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
 	  'make build          Build all image layers' \
+	  'make remote-session-create Create Agents API session (host key)' \
+	  'make remote-exec    Connect restricted executor to Agents API' \
+	  'make test-remote    Offline remote API unit/race/static tests' \
 	  'make build-serena   Build optional Serena + gopls layer' \
 	  'make up-serena      Switch agent to Serena image' \
 	  'make up-serena-example Recreate agent; keep example services' \
@@ -216,3 +219,30 @@ ps-example:
 
 reset-state:
 	@bash scripts/cleanup.sh --volumes
+
+# Agents API control key stays on the host. These commands do not use Codex login.
+# For the hosted API session's environment connection, use make remote-exec.
+REMOTE_URL ?=
+ENVIRONMENT_ID ?=
+SESSION_ID ?=
+TASK ?=
+IDEMPOTENCY_KEY ?=
+
+remote-session-create:
+	cd tools/remote-session && go run . create
+
+remote-session-send:
+	cd tools/remote-session && go run . send --session "$(SESSION_ID)" --text "$(TASK)" --idempotency-key "$(IDEMPOTENCY_KEY)"
+
+remote-session-status:
+	cd tools/remote-session && go run . status --session "$(SESSION_ID)"
+
+remote-session-watch:
+	cd tools/remote-session && go run . watch --session "$(SESSION_ID)"
+
+remote-exec:
+	@bash scripts/remote-executor.sh "$(REMOTE_URL)" "$(ENVIRONMENT_ID)"
+
+test-remote:
+	@bash scripts/test-remote-static.sh
+	@cd tools/remote-session && go test -race ./...
