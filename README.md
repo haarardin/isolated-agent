@@ -1,15 +1,15 @@
 # isolated-agent
 
-Reusable Podman-based development sandbox for local AI coding agents such as OpenAI Codex CLI.
+Reusable rootless-Podman development sandbox for local AI coding agents such as OpenAI Codex CLI.
 
-The goal is simple: give an agent enough freedom to edit code and run unit/integration tests, while exposing only the project workspace and explicitly declared project services.
+The goal is to give an agent enough freedom to edit code, use project services, and run unit/integration tests while exposing only the project workspace and explicitly declared Compose resources.
 
 ## Architecture
 
 ```text
 Host Linux
 │
-├── Podman + podman compose
+├── rootless Podman + podman compose
 │
 ├── project source directory
 │      │
@@ -22,7 +22,8 @@ Host Linux
        │    ├── Go toolchain           │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
-       │    └── persistent Codex state
+       │    ├── /root/.codex  volume
+       │    └── /root/.cache  volume
        │
        ├── postgres      optional
        ├── redis         optional
@@ -36,10 +37,25 @@ The agent does **not** receive the host Podman/Docker socket. Service orchestrat
 The environment is built in three layers:
 
 1. `base` — OS, Go, Git, build/debug utilities.
-2. `codex` — Codex CLI installed on top of the base image.
-3. `project` — project-specific native libraries and tooling.
+2. `codex` — Codex CLI installation.
+3. `project` — project dependencies, global `AGENTS.md`, and Codex production defaults.
 
-That keeps Codex upgrades separate from slower project/runtime dependencies.
+This keeps Codex upgrades separate from both the slower base toolchain and project-specific configuration.
+
+## Why root inside the container
+
+The host runtime is required to be **rootless Podman**.
+
+The final container itself runs as container root. In rootless Podman that identity is mapped into the host user's user namespace; it is not host root. This removes unnecessary UID/GID plumbing and lets the agent edit the bind-mounted workspace naturally.
+
+We still keep the outer controls:
+
+- rootless Podman;
+- read-only container root filesystem at runtime;
+- all Linux capabilities dropped;
+- `no-new-privileges`;
+- no host runtime socket;
+- no host `$HOME`, `.ssh`, or arbitrary filesystem mounts.
 
 ## Requirements
 
@@ -47,7 +63,7 @@ That keeps Codex upgrades separate from slower project/runtime dependencies.
 - rootless Podman
 - `podman-compose` available as the Compose provider
 
-`podman compose` is a wrapper around an external provider. This template defaults to `podman-compose` so Podman-specific features such as `keep-id` and `x-podman.in_pod` behave consistently. Override `PODMAN_COMPOSE_PROVIDER` only if the replacement provider supports the same semantics.
+`podman compose` is a wrapper around an external provider. The template defaults to `podman-compose`.
 
 ## Quick start
 
@@ -59,7 +75,7 @@ cp .env.example .env
 
 Set `PROJECT_DIR` in `.env` to the source directory the agent may access.
 
-Build the three image layers:
+Build all image layers:
 
 ```bash
 make build
@@ -77,13 +93,13 @@ Authenticate Codex once:
 make login
 ```
 
-Open Codex inside the sandbox:
+Open Codex:
 
 ```bash
 make codex
 ```
 
-Open a regular shell inside the sandbox:
+Open a regular shell:
 
 ```bash
 make shell
@@ -95,87 +111,148 @@ Stop the environment:
 make down
 ```
 
+## Persistent Codex state
+
+All writable Codex state is mounted by Compose:
+
+```text
+codex-state  -> /root/.codex
+agent-cache  -> /root/.cache
+```
+
+This preserves login credentials, sessions/history, Codex-managed state, and Go/build caches when the image or container is rebuilt.
+
+Named volumes are scoped by `COMPOSE_PROJECT_NAME`, so each project should use its own value.
+
+The image-owned global instructions file is synchronized into:
+
+```text
+/root/.codex/AGENTS.md
+```
+
+on container startup. Other state in `CODEX_HOME` is left intact.
+
+## Codex configuration
+
+The final project layer generates:
+
+```text
+/etc/codex/config.toml
+```
+
+from build arguments. This provides image-level defaults without mixing them with the persistent user/session state under `/root/.codex`.
+
+Available values in `.env`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CODEX_AGENTS_FILE` | `templates/AGENTS.project.md` | Global image-provided `AGENTS.md` source |
+| `CODEX_MODEL` | empty | Explicit model override; empty uses Codex/account default |
+| `CODEX_MODEL_REASONING_EFFORT` | `high` | Default reasoning effort |
+| `CODEX_PLAN_REASONING_EFFORT` | `high` | Plan-mode reasoning effort |
+| `CODEX_MODEL_VERBOSITY` | empty | Optional model verbosity override |
+| `CODEX_PERSONALITY` | empty | Optional communication personality |
+| `CODEX_APPROVAL_POLICY` | `never` | Non-interactive/autonomous approval behavior |
+| `CODEX_SANDBOX_MODE` | `workspace-write` | Codex's inner sandbox policy |
+| `CODEX_NETWORK_ACCESS` | `true` | Network access from workspace-write sandbox |
+| `CODEX_WEB_SEARCH` | `live` | Codex web-search mode |
+| `CODEX_PROJECT_DOC_MAX_BYTES` | `65536` | Maximum project-instruction bytes loaded |
+| `PROJECT_APT_PACKAGES` | empty | Extra Debian packages for this project layer |
+
+The outer Podman container is the primary isolation boundary. Codex's own `workspace-write` sandbox remains enabled as defense in depth.
+
+The generated config also adds `/root/.cache` as a Codex writable root so Go/module/build caches remain usable with the inner sandbox.
+
+### AGENTS.md precedence
+
+`CODEX_AGENTS_FILE` supplies global instructions for the environment.
+
+A target repository can still contain its own:
+
+```text
+/workspace/AGENTS.md
+```
+
+and deeper directories can contain additional `AGENTS.md` or `AGENTS.override.md` files. Codex loads these from global to local scope, so project-local instructions can specialize the generic image policy.
+
+## Project-specific packages
+
+For straightforward native dependencies you usually do not need to edit a Containerfile:
+
+```dotenv
+PROJECT_APT_PACKAGES=libpq-dev gstreamer1.0-tools
+```
+
+Then:
+
+```bash
+make build-project
+```
+
+For more complex installation logic, edit `images/project/Containerfile`.
+
 ## Example integration services
 
-The repository includes an optional PostgreSQL + Redis example:
+The repository includes optional PostgreSQL + Redis services:
 
 ```bash
 make up-example
 ```
 
-Inside the agent container they are reachable through Compose DNS:
+Inside the agent they are reachable through Compose DNS:
 
 ```text
 postgres:5432
 redis:6379
 ```
 
-They are intentionally not exposed on host ports.
+No database/cache ports are exposed on the host.
 
-A normal Compose network does not share a loopback namespace, so sibling services are reached by service name rather than `127.0.0.1`. If a future project requires shared loopback semantics, add a Pod-specific runtime profile instead of weakening the base sandbox.
+A normal Compose network does not share a loopback namespace, so sibling services are reached by service name rather than `127.0.0.1`.
 
-## Project-specific dependencies
+## Testing workflow
 
-Edit:
+The target project's own `AGENTS.md` should tell Codex which checks are mandatory before it reports completion.
 
-```text
-images/project/Containerfile
-```
-
-Only this layer should contain dependencies unique to a target project.
-
-For example:
-
-```Dockerfile
-USER root
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-       libpq-dev \
-       gstreamer1.0-tools \
-    && rm -rf /var/lib/apt/lists/*
-
-USER agent
-```
-
-Then rebuild:
+The included template expects a flow such as:
 
 ```bash
-make build-project
+go test ./...
+go test -race ./...
+make integration
 ```
 
-## Persistent state
+Useful host commands:
 
-Two named volumes are kept outside the disposable agent container:
-
-- `codex-state` → `/home/agent/.codex`
-- `agent-cache` → `/home/agent/.cache`
-
-This keeps Codex authentication/session state and build caches persistent between container recreations while remaining isolated from other project environments through the Compose project name.
-
-Set a unique `COMPOSE_PROJECT_NAME` per project.
+```bash
+make test
+make race
+make integration
+```
 
 ## Security model
 
-The default agent container:
+The default environment:
 
 - requires rootless Podman;
-- runs as a non-root user;
-- uses Podman's `keep-id` user namespace mapping so the container user can edit the bind-mounted project without changing host ownership;
-- drops Linux capabilities;
+- exposes only `PROJECT_DIR` from the host;
+- mounts Codex state and build cache only as named Compose volumes;
+- does not mount host `$HOME`;
+- does not mount host `.ssh`;
+- does not expose Docker/Podman sockets;
+- drops all Linux capabilities;
 - enables `no-new-privileges`;
-- uses a read-only root filesystem;
-- receives only the configured project directory;
-- does not mount `$HOME`, `.ssh`, Docker socket, Podman socket, or arbitrary host directories;
-- gets writable storage only for `/workspace`, Codex state, cache, and temporary files.
+- uses a read-only container root filesystem at runtime;
+- leaves project services as sibling Compose services.
 
-This is a development sandbox, not a formal security boundary against kernel exploits. For stronger isolation, run the whole environment inside a VM.
+This is a strong development sandbox, not a formal VM-grade boundary against kernel exploits. For hostile/untrusted code, place the complete environment inside a VM as an additional layer.
 
 ## Useful commands
 
 ```bash
 make preflight
 make build
+make build-project
 make up
 make up-example
 make login
@@ -186,23 +263,23 @@ make race
 make integration
 make logs
 make down
+make reset-state
 ```
 
-## Project instructions for the agent
+## Project instructions template
 
-Use `templates/AGENTS.project.md` as a starting point for the target repository's own `AGENTS.md`.
+Use:
 
-That file should document:
+```text
+templates/AGENTS.project.md
+```
 
-- architecture;
-- test commands;
-- integration-test commands;
-- service endpoints;
-- constraints on generated code;
-- actions the agent must perform before declaring a task complete.
+as the starting point for project instructions.
+
+Keep stable development rules in `AGENTS.md` rather than relying on remembered chat context alone.
 
 ## Current scope
 
-This first skeleton deliberately keeps service lifecycle control outside Codex.
+The first version intentionally keeps Podman service lifecycle control outside Codex.
 
-A future optional layer may add a constrained orchestration API so the agent can restart/log selected project services without receiving the unrestricted host Podman socket.
+A future optional layer can expose a constrained orchestration API for selected project services without giving the agent unrestricted access to the host container-runtime socket.
