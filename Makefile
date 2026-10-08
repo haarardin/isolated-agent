@@ -43,7 +43,7 @@ help:
 	  'make build          Build all image layers' \
 	  'make build-serena   Build optional Serena + gopls layer' \
 	  'make up-serena      Switch agent to Serena image' \
-	  'make up-serena-example Switch agent; start example services' \
+	  'make up-serena-example Recreate agent; keep example services' \
 	  'make codex-serena   Open Codex with Serena available' \
 	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
 	  'make test-serena-static Check optional integration without Podman' \
@@ -128,9 +128,12 @@ up-serena:
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA) up -d agent
 
+# Recreate only the agent: podman-compose up -d (without a service)
+# attempts to re-create existing PostgreSQL/Redis containers on some versions.
+# Bootstrap the optional services once with make up-example.
 up-serena-example:
 	@bash scripts/remove-service.sh agent
-	$(COMPOSE_SERENA_EXAMPLE) up -d
+	$(COMPOSE_SERENA_EXAMPLE) up -d agent
 
 codex-serena:
 	$(COMPOSE_SERENA) exec agent codex
