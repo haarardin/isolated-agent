@@ -14,15 +14,14 @@ command -v podman >/dev/null 2>&1 || fail "podman is not installed"
 
 podman info >/dev/null 2>&1 || fail "podman is installed but not usable by the current user"
 
-provider="${PODMAN_COMPOSE_PROVIDER:-podman-compose}"
-command -v "${provider}" >/dev/null 2>&1 || fail "Compose provider is not installed: ${provider}"
+command -v podman-compose >/dev/null 2>&1 || fail "podman-compose is not installed"
 
-if ! podman compose version >/dev/null 2>&1; then
-  fail "podman compose cannot use provider: ${provider}"
+if ! bash scripts/compose.sh version >/dev/null 2>&1; then
+  fail "podman-compose is installed but not usable"
 fi
 
-if ! podman compose config >/dev/null 2>&1; then
-  fail "compose.yaml is not valid for the configured Compose provider"
+if ! bash scripts/compose.sh config >/dev/null 2>&1; then
+  fail "compose.yaml is not valid for podman-compose"
 fi
 
 project_dir="${PROJECT_DIR:-}"
