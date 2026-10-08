@@ -156,7 +156,7 @@ Available values in `.env`:
 | `CODEX_SERVICE_TIER` | empty | Optional service tier such as `fast` when supported |
 | `CODEX_FILE_OPENER` | `none` | Disable desktop-editor URI integration inside the container |
 | `CODEX_APPROVAL_POLICY` | `never` | Non-interactive/autonomous approval behavior |
-| `CODEX_SANDBOX_MODE` | `workspace-write` | Codex's inner sandbox policy |
+| `CODEX_SANDBOX_MODE` | `danger-full-access` | Disable nested Codex sandbox; rootless Podman is the isolation boundary |
 | `CODEX_NETWORK_ACCESS` | `true` | Network access from workspace-write sandbox |
 | `CODEX_WEB_SEARCH` | `cached` | Web-search mode; use `live` only when freshness is required |
 | `CODEX_PROJECT_DOC_MAX_BYTES` | `65536` | Maximum project-instruction bytes loaded |
@@ -164,9 +164,9 @@ Available values in `.env`:
 | `CODEX_FEATURE_MEMORIES` | `false` | Optional experimental Codex memory feature |
 | `PROJECT_APT_PACKAGES` | empty | Extra Debian packages for this project layer |
 
-The outer Podman container is the primary isolation boundary. Codex's own `workspace-write` sandbox remains enabled as defense in depth.
+The outer rootless Podman container is the primary isolation boundary. The default intentionally uses `danger-full-access` **inside the container** so Codex does not try to create a nested Bubblewrap/user-namespace sandbox that rootless Podman commonly blocks. This does not grant host full access: Podman still enforces the filesystem mounts, read-only root filesystem, dropped capabilities, `no-new-privileges`, and network boundary.
 
-The generated config also adds `/root/.cache` as a Codex writable root so Go/module/build caches remain usable with the inner sandbox. It explicitly keeps shell environment secret filtering enabled and defaults web search to cached mode to reduce unnecessary exposure to live untrusted web content.
+If you explicitly switch `CODEX_SANDBOX_MODE=workspace-write` on a host/container configuration that supports nested user namespaces, the generated config also adds `/root/.cache` as a Codex writable root. It explicitly keeps shell environment secret filtering enabled and defaults web search to cached mode to reduce unnecessary exposure to live untrusted web content.
 
 Do not put API keys, tokens, passwords, or other credentials into build arguments: build arguments are image-build metadata, not a secrets mechanism. Authentication belongs in the persistent Codex state volume or in runtime secret injection.
 
@@ -373,3 +373,27 @@ This verifies the effective runtime environment inside the agent container:
 - the container root filesystem remains read-only.
 
 Scripted test commands intentionally use a non-login shell. A login shell (`bash -l`) can replace the image-provided `PATH` via `/etc/profile` and hide toolchain paths such as `/usr/local/go/bin`.
+
+
+## Codex sandbox inside Podman
+
+Codex's Linux `workspace-write` mode uses the Linux sandbox backend (currently Bubblewrap by default). A rootless Podman container commonly cannot create the additional user/network namespaces Bubblewrap needs, producing errors such as:
+
+```text
+bwrap: setting up uid map: Operation not permitted
+```
+
+The default profile therefore uses:
+
+```toml
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+```
+
+Here, "full access" means full access **to the already-isolated container**, not to the host.
+
+Do not solve nested Bubblewrap failures by adding privileged mode, host runtime sockets, broad capabilities, or host filesystem mounts. Those changes would weaken the actual security boundary.
+
+### Credential caveat
+
+With Codex's inner sandbox disabled, commands run by the agent share the container security domain with Codex itself. Treat the container as a trusted development sandbox, avoid mounting unrelated secrets, keep host credentials out of it, and prefer narrowly scoped credentials when this project moves to remote/self-hosted execution.
