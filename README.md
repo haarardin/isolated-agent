@@ -152,16 +152,23 @@ Available values in `.env`:
 | `CODEX_PLAN_REASONING_EFFORT` | `high` | Plan-mode reasoning effort |
 | `CODEX_MODEL_VERBOSITY` | empty | Optional model verbosity override |
 | `CODEX_PERSONALITY` | empty | Optional communication personality |
+| `CODEX_REVIEW_MODEL` | empty | Optional model override for `/review` |
+| `CODEX_SERVICE_TIER` | empty | Optional service tier such as `fast` when supported |
+| `CODEX_FILE_OPENER` | `none` | Disable desktop-editor URI integration inside the container |
 | `CODEX_APPROVAL_POLICY` | `never` | Non-interactive/autonomous approval behavior |
 | `CODEX_SANDBOX_MODE` | `workspace-write` | Codex's inner sandbox policy |
 | `CODEX_NETWORK_ACCESS` | `true` | Network access from workspace-write sandbox |
-| `CODEX_WEB_SEARCH` | `live` | Codex web-search mode |
+| `CODEX_WEB_SEARCH` | `cached` | Web-search mode; use `live` only when freshness is required |
 | `CODEX_PROJECT_DOC_MAX_BYTES` | `65536` | Maximum project-instruction bytes loaded |
+| `CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES` | `false` | Keep Codex's default secret-name environment filtering active |
+| `CODEX_FEATURE_MEMORIES` | `false` | Optional experimental Codex memory feature |
 | `PROJECT_APT_PACKAGES` | empty | Extra Debian packages for this project layer |
 
 The outer Podman container is the primary isolation boundary. Codex's own `workspace-write` sandbox remains enabled as defense in depth.
 
-The generated config also adds `/root/.cache` as a Codex writable root so Go/module/build caches remain usable with the inner sandbox.
+The generated config also adds `/root/.cache` as a Codex writable root so Go/module/build caches remain usable with the inner sandbox. It explicitly keeps shell environment secret filtering enabled and defaults web search to cached mode to reduce unnecessary exposure to live untrusted web content.
+
+Do not put API keys, tokens, passwords, or other credentials into build arguments: build arguments are image-build metadata, not a secrets mechanism. Authentication belongs in the persistent Codex state volume or in runtime secret injection.
 
 ### AGENTS.md precedence
 
