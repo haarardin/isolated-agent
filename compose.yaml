@@ -3,6 +3,7 @@ services:
     image: ${PROJECT_IMAGE:-localhost/isolated-agent-project:dev}
     working_dir: /workspace
     user: "1000:1000"
+    userns_mode: "keep-id:uid=1000,gid=1000"
     stdin_open: true
     tty: true
     init: true
@@ -40,3 +41,6 @@ volumes:
 networks:
   isolated-dev:
     internal: false
+
+x-podman:
+  in_pod: false
