@@ -355,3 +355,21 @@ make ps-example
 ```
 
 This removes the PostgreSQL container and the Compose-labeled `postgres-data` volume for the current `COMPOSE_PROJECT_NAME`. Codex authentication/state and caches are preserved.
+
+
+## Runtime toolchain check
+
+After starting the agent, run:
+
+```bash
+make doctor
+```
+
+This verifies the effective runtime environment inside the agent container:
+
+- Go is present in `PATH`;
+- Codex is present in `PATH`;
+- `/workspace`, `CODEX_HOME`, and the build cache are writable;
+- the container root filesystem remains read-only.
+
+Scripted test commands intentionally use a non-login shell. A login shell (`bash -l`) can replace the image-provided `PATH` via `/etc/profile` and hide toolchain paths such as `/usr/local/go/bin`.
