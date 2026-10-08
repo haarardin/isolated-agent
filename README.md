@@ -424,3 +424,22 @@ io.podman.compose.service=agent
 ```
 
 so it does not depend on generated container names and does not remove PostgreSQL, Redis, networks, or volumes.
+
+
+### podman-compose label compatibility
+
+Different podman-compose versions may use either the Podman-native label namespace:
+
+```text
+io.podman.compose.project
+io.podman.compose.service
+```
+
+or the Docker Compose compatibility namespace:
+
+```text
+com.docker.compose.project
+com.docker.compose.service
+```
+
+Lifecycle helper scripts inspect both forms so they work with older and newer podman-compose releases.
