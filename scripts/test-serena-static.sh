@@ -23,6 +23,18 @@ fi
 
 make -n build-serena | grep -Fq 'images/serena/Containerfile'
 make -n up-serena | grep -Fq 'compose.serena.yaml'
-make -n up-serena-example | grep -Fq 'compose.example-services.yaml'
+
+# Regression test for duplicate container-name failures with podman-compose:
+# a repeat Serena start must only create the agent, not Postgres/Redis.
+serena_plan="$(make -n up-serena-example)"
+printf '%s\n' "$serena_plan" | grep -Fq 'compose.example-services.yaml'
+printf '%s\n' "$serena_plan" | grep -Fq 'compose.serena.yaml up -d agent'
+if printf '%s\n' "$serena_plan" | grep -Eq 'compose.serena.yaml up -d[[:space:]]*; then
+  echo 'ERROR: up-serena-example would recreate all services' >&2
+  exit 1
+fi
+
+# Baseline rollback must also target only the agent.
+make -n recreate-agent | grep -Fq 'compose.example-services.yaml up -d agent'
 
 echo 'Serena static integration checks: OK'
