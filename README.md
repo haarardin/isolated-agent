@@ -9,7 +9,7 @@ The goal is to give an agent enough freedom to edit code, use project services, 
 ```text
 Host Linux
 │
-├── rootless Podman + podman compose
+├── rootless Podman + pinned podman-compose wrapper
 │
 ├── project source directory
 │      │
@@ -63,7 +63,7 @@ We still keep the outer controls:
 - rootless Podman
 - `podman-compose` available as the Compose provider
 
-`podman compose` is a wrapper around an external provider. The template defaults to `podman-compose`.
+`podman compose` is itself only a provider wrapper and prefers `docker-compose` when both providers are installed. This project therefore does not rely on provider auto-selection: all project commands go through `scripts/compose.sh`, which invokes `podman-compose` directly. This avoids requiring a Podman API service socket for ordinary local orchestration.
 
 ## Quick start
 
@@ -204,6 +204,7 @@ The repository includes optional PostgreSQL + Redis services:
 
 ```bash
 make up-example
+make ps-example
 ```
 
 Inside the agent they are reachable through Compose DNS:
@@ -269,7 +270,11 @@ make test
 make race
 make integration
 make logs
+make logs-example
+make ps
+make ps-example
 make down
+make down-example
 make reset-state
 ```
 
@@ -290,3 +295,23 @@ Keep stable development rules in `AGENTS.md` rather than relying on remembered c
 The first version intentionally keeps Podman service lifecycle control outside Codex.
 
 A future optional layer can expose a constrained orchestration API for selected project services without giving the agent unrestricted access to the host container-runtime socket.
+
+
+## Compose provider
+
+For this repository, prefer the Make targets or the pinned wrapper:
+
+```bash
+make ps-example
+```
+
+or, when you need a raw Compose command:
+
+```bash
+bash scripts/compose.sh \
+  -f compose.yaml \
+  -f compose.example-services.yaml \
+  ps
+```
+
+Do not use an unqualified `podman compose ...` command as a project instruction. On hosts that also have Docker Compose installed, Podman may choose `docker-compose` first, which then expects the Podman API socket.
