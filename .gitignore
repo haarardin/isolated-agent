@@ -7,3 +7,6 @@ workspace/*
 *.swp
 *.swo
 .DS_Store
+
+# Restricted environment keys are stored only on the host.
+.secrets/
