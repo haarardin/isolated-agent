@@ -53,17 +53,30 @@ git switch feat/serena-mcp-integration
 # Set PROJECT_DIR and COMPOSE_PROJECT_NAME in your local .env
 make build-project   # only when project image is not yet built/changed
 make build-serena
-make up-serena-example
+make up-example        # one-time bootstrap only on an empty Compose project
+make up-serena-example # recreate only agent with Serena image
 make serena-doctor
 make codex-serena
 ```
 
-`make up-serena` starts only the agent; `make up-serena-example`
-also includes the example PostgreSQL and Redis Compose services.
-Both commands **remove/recreate the agent container**, using our
-version-compatible Podman service-label helper, to avoid silently
-reusing the non-Serena image. Do **not** run them during an active Codex
-session. Neither deletes `/workspace` nor persistent volumes.
+`make up-serena` starts only the agent. `make up-serena-example`
+uses the Compose overlay with PostgreSQL/Redis endpoints, but **only
+recreates the agent**. This is intentional: some `podman-compose`
+versions attempt to create the already-running PostgreSQL and Redis
+containers a second time if invoked as `up -d` without a service name,
+raising a "container name ... already in use" error.
+
+**On a fresh/empty stack**, run `make up-example` once to bootstrap the
+example service containers, then `make up-serena-example` to switch
+only the agent to Serena. **On an already running stack**, run
+`make up-serena-example` directly; it keeps the existing PostgreSQL
+and Redis containers intact. The latter target does not start missing
+example services itself.
+
+Both Serena targets use our Podman service-label helper to
+remove/recreate the agent container and prevent silently reusing the
+non-Serena image. Do **not** run them during an active Codex session.
+Neither deletes `/workspace` nor persistent volumes.
 
 To check MCP registration within Codex use `/mcp`. For the first
 semantic smoke test, try:
@@ -120,12 +133,16 @@ by enabling privileged mode or mounting the host Podman socket.
 To return to the baseline **without deleting credentials or caches**:
 
 ```bash
-make remove-agent
-make up-example
+make recreate-agent
 ```
 
-This recreates the standard project image. The Serena state volume remains
-until the explicit destructive `make reset-state` cleanup.
+This invokes `up -d agent` using the baseline Compose files, so the
+standard project image is restored without attempting to recreate
+already-running PostgreSQL/Redis containers. Do **not** use
+`make remove-agent && make up-example` on a running example stack:
+that can trigger the same duplicate container-name error.
+The Serena state volume remains until the explicit destructive
+`make reset-state` cleanup.
 
 ## Limitations and security
 
