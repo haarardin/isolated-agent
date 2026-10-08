@@ -443,3 +443,32 @@ com.docker.compose.service
 ```
 
 Lifecycle helper scripts inspect both forms so they work with older and newer podman-compose releases.
+
+## Optional Serena MCP integration (child PR)
+
+Large Go repositories can opt into a separate `Serena + gopls` image layer.
+Serena exposes symbol-aware code search and editing to Codex through MCP
+over local stdio. The baseline three-layer image remains unchanged.
+
+```bash
+make build-serena
+make test-serena-static
+make up-serena-example
+make serena-doctor
+make codex-serena
+```
+
+For the first Serena start on an **empty** Compose project, bootstrap
+the PostgreSQL/Redis examples once with `make up-example`.
+Subsequent `make up-serena-example` invocations recreate **only the agent
+container**. This avoids duplicate PostgreSQL/Redis container-name
+errors seen with `podman-compose up -d` on some versions.
+Do not switch while a Codex session is active. Existing source files
+and Codex state volumes persist. The optional Compose overlay adds a separate
+`serena-state` volume at `/root/.serena`.
+
+To switch back to the plain project image without touching running example
+services or persistent volumes, use `make recreate-agent`.
+
+See [docs/serena.md](docs/serena.md) for architecture, permissions, project
+`.serena/` artifacts, benchmark design, and rollback steps.

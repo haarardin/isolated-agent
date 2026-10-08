@@ -6,10 +6,15 @@ endif
 PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml
+COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.serena.yaml
+COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f compose.serena.yaml
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
 PROJECT_IMAGE ?= localhost/isolated-agent-project:dev
+SERENA_IMAGE ?= localhost/isolated-agent-serena:dev
+SERENA_VERSION ?= 1.7.0
+SERENA_GOPLS_VERSION ?= v0.20.0
 
 PROJECT_APT_PACKAGES ?=
 CODEX_AGENTS_FILE ?= templates/AGENTS.project.md
@@ -29,13 +34,19 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
 	  'make build          Build all image layers' \
+	  'make build-serena   Build optional Serena + gopls layer' \
+	  'make up-serena      Switch agent to Serena image' \
+	  'make up-serena-example Recreate agent; keep example services' \
+	  'make codex-serena   Open Codex with Serena available' \
+	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
+	  'make test-serena-static Check optional integration without Podman' \
 	  'make up             Start the isolated agent' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
 	  'make ps-example     Show agent + example services' \
@@ -99,6 +110,51 @@ build-project:
 		--build-arg CODEX_FEATURE_MEMORIES="$(CODEX_FEATURE_MEMORIES)" \
 		-t $(PROJECT_IMAGE) \
 		.
+
+# The outer project image must exist before the optional layer is built.
+build-serena:
+	$(PODMAN) build \
+		-f images/serena/Containerfile \
+		--build-arg PROJECT_IMAGE="$(PROJECT_IMAGE)" \
+		--build-arg SERENA_VERSION="$(SERENA_VERSION)" \
+		--build-arg GOPLS_VERSION="$(SERENA_GOPLS_VERSION)" \
+		-t $(SERENA_IMAGE) \
+		.
+
+# Swapping image requires removing the previous agent container;
+# persistent codex-state and agent-cache volumes are deliberately untouched.
+# Do not invoke this while a Codex session is actively running.
+up-serena:
+	@bash scripts/remove-service.sh agent
+	$(COMPOSE_SERENA) up -d agent
+
+# Recreate only the agent: podman-compose up -d (without a service)
+# attempts to re-create existing PostgreSQL/Redis containers on some versions.
+# Bootstrap the optional services once with make up-example.
+up-serena-example:
+	@bash scripts/remove-service.sh agent
+	$(COMPOSE_SERENA_EXAMPLE) up -d agent
+
+codex-serena:
+	$(COMPOSE_SERENA) exec agent codex
+
+serena-doctor:
+	@bash scripts/serena-doctor.sh
+
+test-serena-static:
+	@bash scripts/test-serena-static.sh
+
+ps-serena:
+	$(COMPOSE_SERENA) ps
+
+ps-serena-example:
+	$(COMPOSE_SERENA_EXAMPLE) ps
+
+down-serena:
+	$(COMPOSE_SERENA) down
+
+down-serena-example:
+	$(COMPOSE_SERENA_EXAMPLE) down
 
 up:
 	$(COMPOSE) up -d agent
