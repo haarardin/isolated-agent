@@ -16,7 +16,7 @@ services:
       timeout: 3s
       retries: 20
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     networks:
       - isolated-dev
 
