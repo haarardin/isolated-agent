@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Static validation; no container engine or external downloads needed.
-for script in scripts/serena-doctor.sh scripts/compose.sh scripts/remove-service.sh; do
+for script in scripts/test-serena-static.sh scripts/serena-doctor.sh scripts/compose.sh scripts/remove-service.sh; do
   bash -n "$script"
 done
 
@@ -29,7 +29,7 @@ make -n up-serena | grep -Fq 'compose.serena.yaml'
 serena_plan="$(make -n up-serena-example)"
 printf '%s\n' "$serena_plan" | grep -Fq 'compose.example-services.yaml'
 printf '%s\n' "$serena_plan" | grep -Fq 'compose.serena.yaml up -d agent'
-if printf '%s\n' "$serena_plan" | grep -Eq 'compose.serena.yaml up -d[[:space:]]*; then
+if printf '%s\n' "$serena_plan" | grep -Fxq 'bash scripts/compose.sh -f compose.yaml -f compose.example-services.yaml -f compose.serena.yaml up -d'; then
   echo 'ERROR: up-serena-example would recreate all services' >&2
   exit 1
 fi
