@@ -25,18 +25,25 @@ rootless Podman (same baseline restrictions)
        +-- MCP stdio -> Serena 1.7.0 -> gopls v0.20.0
        |
        +-- Go tests/build tools
-    /workspace          host PROJECT_DIR bind mount (RW)
-    /root/.codex        codex-state named volume (persisted)
-    /root/.cache        agent-cache named volume (persisted)
-    /root/.serena       serena-state named volume (persisted)
-    /etc/codex/config.toml   image-provided config (read-only)
+    /workspace               host PROJECT_DIR bind mount (RW)
+      AGENTS.md               project instructions
+      .codex/config.toml      project Codex overrides
+      .serena/                Serena project config/memories
+    /root/.codex             Codex runtime/user state (persisted)
+    /root/.cache             build/tool cache (persisted)
+    /root/.serena            Serena global settings/logs (persisted)
+    /etc/codex/config.toml   image-provided system defaults (read-only)
 ```
 
-The Serena image inherits the project image and its entrypoint, so
-`/root/.codex/AGENTS.md` refresh and login preservation continue working.
-The MCP stanza is **not** written into `/root/.codex/config.toml`; it is
-appended to the image's `/etc/codex/config.toml`. This keeps authorization
-state and image policy separate.
+The Serena image inherits the project image and its entrypoint. The image-level
+global policy and Codex runtime state remain separate from repository context.
+
+Project-specific Codex and Serena context belongs under `/workspace`:
+`AGENTS.md`, `.codex/config.toml`, and `.serena/`.
+
+The MCP stanza is **not** written into project or user config; it is appended to
+the image's `/etc/codex/config.toml`. This keeps system integration policy
+separate from project-specific configuration.
 
 `SERENA_VERSION=1.7.0` and `SERENA_GOPLS_VERSION=v0.20.0` are pinned,
 not `latest`. The pinned Serena **v1.7.0** source release is MIT licensed;
@@ -100,10 +107,10 @@ Serena uses writable state:
   It may appear during project activation/indexing.
 
 Do not accidentally commit generated `.serena/` artifacts into a production
-repository. Review contents first. If they should be local-only, add
-`.serena/` to **that repository's** `.gitignore`. For shared project
-configuration, selectively commit only deliberate settings, not logs or
-generated memory content. Serena is explicitly allowed to edit
+repository. Review contents first. If they should be local-only, prefer adding
+`.serena/` to that clone's `.git/info/exclude` so the shared repository
+`.gitignore` is unchanged. For shared project configuration, selectively
+commit only deliberate settings, not logs or generated memory content. Serena is explicitly allowed to edit
 `/workspace`, so always review changes on production branches.
 
 Dashboard and GUI are disabled in the MCP launch arguments so Serena will
@@ -117,6 +124,7 @@ make serena-doctor
 bash scripts/compose.sh exec agent codex mcp list
 bash scripts/compose.sh exec agent gopls version
 bash scripts/compose.sh exec agent ls -la /root/.serena
+bash scripts/compose.sh exec agent ls -la /workspace/.serena
 make test
 make race
 ```

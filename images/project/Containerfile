@@ -1,11 +1,11 @@
 ARG CODEX_IMAGE=localhost/isolated-agent-codex:dev
 FROM ${CODEX_IMAGE}
 
-# Project/runtime customization. These values become system-level Codex defaults
-# in /etc/codex/config.toml. User/project config can still override them according
-# to Codex configuration precedence.
+# Image/runtime customization. These values become system-level Codex defaults
+# in /etc/codex/config.toml. Project-specific configuration belongs in
+# /workspace/.codex/config.toml and overrides these defaults for trusted projects.
 ARG PROJECT_APT_PACKAGES=""
-ARG CODEX_AGENTS_FILE=templates/AGENTS.project.md
+ARG CODEX_AGENTS_FILE=templates/AGENTS.global.md
 ARG CODEX_MODEL=""
 ARG CODEX_MODEL_REASONING_EFFORT=high
 ARG CODEX_PLAN_REASONING_EFFORT=high
