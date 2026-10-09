@@ -34,13 +34,19 @@ The agent does **not** receive the host Podman/Docker socket. Service orchestrat
 
 ## Image layers
 
-The environment is built in three layers:
+The environment uses three baseline image layers plus an optional Serena layer:
 
 1. `base` — OS, Go, Git, build/debug utilities.
 2. `codex` — Codex CLI installation.
 3. `project` — project dependencies, global `AGENTS.md`, and Codex production defaults.
+4. `serena` — optional Serena MCP + `gopls` layer built on top of `project`.
 
-This keeps Codex upgrades separate from both the slower base toolchain and project-specific configuration.
+The image store belongs to the rootless Podman host user, not to a repository
+clone or Compose project. Two different project-context clones can therefore
+run containers from the same image ID as long as they use the same image tags.
+
+This keeps expensive toolchain layers reusable while Compose isolates runtime
+containers, networks, and persistent state.
 
 ## Why root inside the container
 
@@ -119,14 +125,27 @@ Stop the environment:
 make down
 ```
 
-## Reusing images across project clones
+## Recommended multi-project workflow
 
-A practical setup is to keep one clone of this repository per target project,
-with a different `COMPOSE_PROJECT_NAME`, `PROJECT_DIR`, and persistent
-Compose state for each clone.
+A practical setup is **one clone of `isolated-agent` per target project
+context**. Each clone owns its Compose configuration and runtime state, while
+the heavy Podman images are shared by the same rootless host user.
 
-The image tags are independent of the Compose project name. Multiple clones
-running as the same host user can therefore share the same Podman images:
+Example:
+
+```text
+~/agents/project-a/isolated-agent
+  .env:
+    COMPOSE_PROJECT_NAME=isolated-agent-project-a
+    PROJECT_DIR=/home/user/projects/project-a
+
+~/agents/project-b/isolated-agent
+  .env:
+    COMPOSE_PROJECT_NAME=isolated-agent-project-b
+    PROJECT_DIR=/home/user/projects/project-b
+```
+
+Both contexts can use the same local image tags:
 
 ```text
 localhost/isolated-agent-base:dev
@@ -135,35 +154,188 @@ localhost/isolated-agent-project:dev
 localhost/isolated-agent-serena:dev
 ```
 
-For a newly cloned environment, run:
+The resulting runtime looks conceptually like this:
+
+```text
+project-a clone ── Compose project A ──┐
+                                      ├── shared Podman images
+project-b clone ── Compose project B ──┘
+
+Compose project A:
+  /workspace -> project-a
+  own containers
+  own network
+  own Codex/cache/Serena state
+
+Compose project B:
+  /workspace -> project-b
+  own containers
+  own network
+  own Codex/cache/Serena state
+```
+
+### Bootstrap a new project context
+
+After cloning the repository for another project:
+
+```bash
+cp .env.example .env
+```
+
+At minimum, set:
+
+```dotenv
+COMPOSE_PROJECT_NAME=isolated-agent-my-project
+PROJECT_DIR=/absolute/path/to/my-project
+```
+
+`COMPOSE_PROJECT_NAME` must be unique for each context. Use an absolute
+`PROJECT_DIR` for real projects so it is obvious which host repository is
+mounted at `/workspace`.
+
+Then run:
 
 ```bash
 make ensure-images
+make up
+make ps
 ```
 
-The target checks each configured image with `podman image exists`. Existing
-images are reused and only missing layers are built.
+`make ensure-images` checks each configured image with
+`podman image exists`. Existing images are reused and only missing layers are
+built.
 
-This check is intentionally based on image existence, not on a hash of the
-current project configuration. If project-specific image inputs change, such
-as `CODEX_AGENTS_FILE`, `PROJECT_APT_PACKAGES`, model defaults, or Serena
-version pins, refresh the affected layers explicitly:
+A simple verification is:
+
+```bash
+podman ps
+```
+
+Different contexts should have different container names, while the IMAGE
+column may intentionally show the same image, for example:
+
+```text
+isolated-agent-project-a_agent_1   localhost/isolated-agent-project:dev
+isolated-agent-project-b_agent_1   localhost/isolated-agent-project:dev
+```
+
+### What is shared and what stays isolated
+
+Normally safe to share across project contexts:
+
+- `BASE_IMAGE` — common OS/toolchain layer;
+- `CODEX_IMAGE` — common Codex CLI layer;
+- `PROJECT_IMAGE` — when all project-context build-time settings are the same;
+- `SERENA_IMAGE` — when its parent project image and Serena/gopls versions are the same.
+
+Keep separate per project context:
+
+- `COMPOSE_PROJECT_NAME`;
+- `PROJECT_DIR`;
+- containers and Compose networks;
+- Codex sessions/history/memories when using per-project volumes or bind mounts;
+- build caches when configured per project;
+- Serena runtime/project state;
+- project-local `AGENTS.md` and source code.
+
+### Important: shared tags are host-global
+
+Image tags such as:
+
+```text
+localhost/isolated-agent-project:dev
+```
+
+belong to the rootless Podman image store for the current host user. They are
+not namespaced by `COMPOSE_PROJECT_NAME`.
+
+Therefore, running:
 
 ```bash
 make build-project
 make build-serena
 ```
 
-Use the full forced rebuild when required:
+in one clone updates those shared tags for every other clone that uses the same
+tag names.
+
+Already-running containers continue using the image ID they were created with.
+A newly created or recreated container resolves the current image tag and may
+therefore pick up the newly rebuilt image.
+
+This is useful when all contexts intentionally share the same toolchain and
+agent configuration, but it matters when project-specific build inputs differ.
+
+### Project-specific image configuration
+
+`make ensure-images` deliberately checks only whether an image tag exists. It
+does **not** compare the current clone's build arguments with the image that is
+already present.
+
+The `project` image is affected by settings such as:
+
+- `CODEX_AGENTS_FILE`;
+- `PROJECT_APT_PACKAGES`;
+- Codex model/default configuration;
+- memory feature flags and other generated Codex defaults.
+
+The Serena image additionally depends on:
+
+- the selected `PROJECT_IMAGE`;
+- `SERENA_VERSION`;
+- `SERENA_GOPLS_VERSION`.
+
+For maximum image reuse, keep image-level configuration generic and put
+project-specific instructions in the mounted/source project `AGENTS.md` or
+another project-specific runtime mount.
+
+If two projects genuinely need different image-level dependencies or Codex
+defaults, give them different image tags in their respective `.env` files,
+for example:
+
+```dotenv
+PROJECT_IMAGE=localhost/isolated-agent-project:sip-server
+SERENA_IMAGE=localhost/isolated-agent-serena:sip-server
+```
+
+Then build only that project's specialized layers:
+
+```bash
+make build-project
+make build-serena
+```
+
+### Rebuild rules
+
+Use:
+
+```bash
+make ensure-images
+```
+
+when you want to reuse already available images and build only missing ones.
+
+Use:
+
+```bash
+make build-project
+make build-serena
+```
+
+when project-level build arguments changed.
+
+Use:
 
 ```bash
 make build
 make build-serena
 ```
 
-Each clone should still use a unique `COMPOSE_PROJECT_NAME` so containers,
-networks, and named volumes remain isolated even though image layers are
-shared.
+when you intentionally want a full rebuild of all layers.
+
+This separation lets multiple project contexts share expensive base/toolchain
+images without accidentally forcing a rebuild every time the repository is
+cloned.
 
 ## Persistent Codex state
 
@@ -316,8 +488,10 @@ This is a strong development sandbox, not a formal VM-grade boundary against ker
 ```bash
 make preflight
 make ensure-images
+make test-image-reuse-static
 make build
 make build-project
+make build-serena
 make up
 make up-example
 make login
@@ -499,7 +673,7 @@ com.docker.compose.service
 
 Lifecycle helper scripts inspect both forms so they work with older and newer podman-compose releases.
 
-## Optional Serena MCP integration (child PR)
+## Optional Serena MCP integration
 
 Large Go repositories can opt into a separate `Serena + gopls` image layer.
 Serena exposes symbol-aware code search and editing to Codex through MCP
