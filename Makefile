@@ -34,14 +34,16 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: help preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
-	  'make build          Build all image layers' \
-	  'make build-serena   Build optional Serena + gopls layer' \
+	  'make build          Force-build base, Codex and project image layers' \
+	  'make build-serena   Force-build optional Serena + gopls layer' \
+	  'make ensure-images  Reuse existing images; build only missing layers' \
+	  'make test-image-reuse-static Validate image reuse logic without Podman' \
 	  'make up-serena      Switch agent to Serena image' \
 	  'make up-serena-example Recreate agent; keep example services' \
 	  'make codex-serena   Open Codex with Serena available' \
@@ -73,6 +75,50 @@ doctor:
 	@bash scripts/doctor.sh
 
 build: build-base build-codex build-project
+
+# Fast bootstrap for additional repository clones on the same rootless-Podman
+# host. Podman image storage is shared by tag for the current host user, so
+# reuse an existing image instead of invoking a redundant build.
+#
+# This intentionally checks only image existence. If project-specific build
+# inputs changed (for example CODEX_AGENTS_FILE, PROJECT_APT_PACKAGES or Codex
+# defaults), use make build-project && make build-serena to refresh them.
+ensure-images: ensure-serena-image
+
+ensure-base-image:
+	@if $(PODMAN) image exists "$(BASE_IMAGE)"; then \
+		printf 'Reusing existing image: %s\n' "$(BASE_IMAGE)"; \
+	else \
+		printf 'Image missing, building: %s\n' "$(BASE_IMAGE)"; \
+		$(MAKE) build-base; \
+	fi
+
+ensure-codex-image: ensure-base-image
+	@if $(PODMAN) image exists "$(CODEX_IMAGE)"; then \
+		printf 'Reusing existing image: %s\n' "$(CODEX_IMAGE)"; \
+	else \
+		printf 'Image missing, building: %s\n' "$(CODEX_IMAGE)"; \
+		$(MAKE) build-codex; \
+	fi
+
+ensure-project-image: ensure-codex-image
+	@if $(PODMAN) image exists "$(PROJECT_IMAGE)"; then \
+		printf 'Reusing existing image: %s\n' "$(PROJECT_IMAGE)"; \
+	else \
+		printf 'Image missing, building: %s\n' "$(PROJECT_IMAGE)"; \
+		$(MAKE) build-project; \
+	fi
+
+ensure-serena-image: ensure-project-image
+	@if $(PODMAN) image exists "$(SERENA_IMAGE)"; then \
+		printf 'Reusing existing image: %s\n' "$(SERENA_IMAGE)"; \
+	else \
+		printf 'Image missing, building: %s\n' "$(SERENA_IMAGE)"; \
+		$(MAKE) build-serena; \
+	fi
+
+test-image-reuse-static:
+	@bash scripts/test-image-reuse-static.sh
 
 build-base:
 	$(PODMAN) build \
