@@ -17,7 +17,7 @@ SERENA_VERSION ?= 1.7.0
 SERENA_GOPLS_VERSION ?= v0.20.0
 
 PROJECT_APT_PACKAGES ?=
-CODEX_AGENTS_FILE ?= templates/AGENTS.project.md
+CODEX_AGENTS_FILE ?= templates/AGENTS.global.md
 CODEX_MODEL ?=
 CODEX_MODEL_REASONING_EFFORT ?= high
 CODEX_PLAN_REASONING_EFFORT ?= high
@@ -81,8 +81,10 @@ build: build-base build-codex build-project
 # reuse an existing image instead of invoking a redundant build.
 #
 # This intentionally checks only image existence. If project-specific build
-# inputs changed (for example CODEX_AGENTS_FILE, PROJECT_APT_PACKAGES or Codex
-# defaults), use make build-project && make build-serena to refresh them.
+# image-level inputs changed (for example CODEX_AGENTS_FILE,
+# PROJECT_APT_PACKAGES or Codex system defaults), use
+# make build-project && make build-serena to refresh them. Project-specific
+# context should normally live under PROJECT_DIR (/workspace) instead.
 ensure-images: ensure-serena-image
 
 ensure-base-image:
