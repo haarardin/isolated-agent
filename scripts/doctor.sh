@@ -32,6 +32,12 @@ go version
 printf "Codex:           "
 codex --version
 
+workspace="$(pwd -P)"
+if [ "$workspace" != "/workspace" ]; then
+  printf "ERROR: agent working directory is %s, expected /workspace\n" "$workspace" >&2
+  exit 1
+fi
+
 test -w /workspace || {
   printf "ERROR: /workspace is not writable\n" >&2
   exit 1
@@ -53,9 +59,29 @@ if touch /isolated-agent-doctor-root-write-test 2>/dev/null; then
   exit 1
 fi
 
+printf "Project root:     /workspace\n"
 printf "Workspace:        writable\n"
-printf "CODEX_HOME:       writable\n"
-printf "Cache:            writable\n"
+
+if [ -f /workspace/AGENTS.md ]; then
+  printf "Project AGENTS:   /workspace/AGENTS.md\n"
+else
+  printf "Project AGENTS:   not present (optional)\n"
+fi
+
+if [ -f /workspace/.codex/config.toml ]; then
+  printf "Project config:   /workspace/.codex/config.toml\n"
+else
+  printf "Project config:   not present (optional)\n"
+fi
+
+if [ -d /workspace/.serena ]; then
+  printf "Serena project:   /workspace/.serena\n"
+else
+  printf "Serena project:   not initialized\n"
+fi
+
+printf "CODEX_HOME:       writable runtime state\n"
+printf "Cache:            writable runtime state\n"
 printf "Root filesystem:  read-only\n"
 printf "Runtime doctor:   OK\n"
 '
