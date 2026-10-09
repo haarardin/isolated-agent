@@ -75,11 +75,19 @@ cp .env.example .env
 
 Set `PROJECT_DIR` in `.env` to the source directory the agent may access.
 
-Build all image layers:
+Ensure all image layers are available:
 
 ```bash
-make build
+make ensure-images
 ```
+
+This is the preferred bootstrap command when the repository is cloned more than
+once on the same host. Rootless Podman image storage is shared for the current
+host user, so images with the same configured tags are reused instead of being
+built again.
+
+Use `make build` and `make build-serena` when you intentionally want to
+rebuild image layers.
 
 Start the agent:
 
@@ -110,6 +118,52 @@ Stop the environment:
 ```bash
 make down
 ```
+
+## Reusing images across project clones
+
+A practical setup is to keep one clone of this repository per target project,
+with a different `COMPOSE_PROJECT_NAME`, `PROJECT_DIR`, and persistent
+Compose state for each clone.
+
+The image tags are independent of the Compose project name. Multiple clones
+running as the same host user can therefore share the same Podman images:
+
+```text
+localhost/isolated-agent-base:dev
+localhost/isolated-agent-codex:dev
+localhost/isolated-agent-project:dev
+localhost/isolated-agent-serena:dev
+```
+
+For a newly cloned environment, run:
+
+```bash
+make ensure-images
+```
+
+The target checks each configured image with `podman image exists`. Existing
+images are reused and only missing layers are built.
+
+This check is intentionally based on image existence, not on a hash of the
+current project configuration. If project-specific image inputs change, such
+as `CODEX_AGENTS_FILE`, `PROJECT_APT_PACKAGES`, model defaults, or Serena
+version pins, refresh the affected layers explicitly:
+
+```bash
+make build-project
+make build-serena
+```
+
+Use the full forced rebuild when required:
+
+```bash
+make build
+make build-serena
+```
+
+Each clone should still use a unique `COMPOSE_PROJECT_NAME` so containers,
+networks, and named volumes remain isolated even though image layers are
+shared.
 
 ## Persistent Codex state
 
@@ -261,6 +315,7 @@ This is a strong development sandbox, not a formal VM-grade boundary against ker
 
 ```bash
 make preflight
+make ensure-images
 make build
 make build-project
 make up
