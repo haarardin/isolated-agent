@@ -34,7 +34,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: help preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -43,6 +43,7 @@ help:
 	  'make build          Force-build base, Codex and project image layers' \
 	  'make build-serena   Force-build optional Serena + gopls layer' \
 	  'make ensure-images  Reuse existing images; build only missing layers' \
+	  'make test-image-reuse-static Validate image reuse logic without Podman' \
 	  'make up-serena      Switch agent to Serena image' \
 	  'make up-serena-example Recreate agent; keep example services' \
 	  'make codex-serena   Open Codex with Serena available' \
@@ -115,6 +116,9 @@ ensure-serena-image: ensure-project-image
 		printf 'Image missing, building: %s\n' "$(SERENA_IMAGE)"; \
 		$(MAKE) build-serena; \
 	fi
+
+test-image-reuse-static:
+	@bash scripts/test-image-reuse-static.sh
 
 build-base:
 	$(PODMAN) build \
