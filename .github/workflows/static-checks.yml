@@ -1,0 +1,24 @@
+name: Static repository checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate workspace project context
+        run: make test-project-context-static
+
+      - name: Validate image reuse logic
+        run: make test-image-reuse-static
+
+      - name: Validate Serena integration
+        run: make test-serena-static
