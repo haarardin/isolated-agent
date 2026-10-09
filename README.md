@@ -534,6 +534,7 @@ This is a strong development sandbox, not a formal VM-grade boundary against ker
 make preflight
 make ensure-images
 make test-image-reuse-static
+make test-project-context-static
 make build
 make build-project
 make build-serena
