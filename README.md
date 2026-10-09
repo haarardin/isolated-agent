@@ -22,8 +22,12 @@ Host Linux
        │    ├── Go toolchain           │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
-       │    ├── /root/.codex  volume
-       │    └── /root/.cache  volume
+       │    │    ├── AGENTS.md              project instructions
+       │    │    ├── .codex/config.toml     project Codex config
+       │    │    └── .serena/               project Serena state
+       │    ├── /root/.codex  volume        runtime/user state
+       │    ├── /root/.serena volume        Serena global state (optional)
+       │    └── /root/.cache  volume        build/tool cache
        │
        ├── postgres      optional
        ├── redis         optional
@@ -38,7 +42,7 @@ The environment uses three baseline image layers plus an optional Serena layer:
 
 1. `base` — OS, Go, Git, build/debug utilities.
 2. `codex` — Codex CLI installation.
-3. `project` — project dependencies, global `AGENTS.md`, and Codex production defaults.
+3. `project` — project dependencies, generic global Codex policy, and system defaults.
 4. `serena` — optional Serena MCP + `gopls` layer built on top of `project`.
 
 The image store belongs to the rootless Podman host user, not to a repository
@@ -47,6 +51,47 @@ run containers from the same image ID as long as they use the same image tags.
 
 This keeps expensive toolchain layers reusable while Compose isolates runtime
 containers, networks, and persistent state.
+
+## Project context root
+
+`/workspace` is the canonical project root inside the agent.
+
+Project-specific context should live with the mounted target project:
+
+```text
+/workspace/AGENTS.md
+/workspace/.codex/config.toml
+/workspace/.serena/
+```
+
+Use these paths for repository-specific instructions, Codex overrides and
+Serena project state. Codex loads repository `AGENTS.md` files from the
+project tree and loads project `.codex/config.toml` for trusted projects.
+
+The `/root` paths serve a different purpose:
+
+```text
+/root/.codex   Codex authentication, sessions, history and user/runtime state
+/root/.serena  Serena global settings/logs
+/root/.cache   Go and tool caches
+```
+
+Do not use `/root/.codex/AGENTS.md` or `/root/.serena` as the primary source
+of project-specific context. The image may provide a small generic global
+policy under `/root/.codex/AGENTS.md`, but repository-specific instructions
+belong in `/workspace/AGENTS.md` and take precedence at the project scope.
+
+For local-only project context that should not be committed, prefer the target
+repository's `.git/info/exclude`:
+
+```text
+AGENTS.md
+.codex/
+.serena/
+```
+
+This keeps the files available to Codex and Serena without changing the shared
+repository `.gitignore`.
 
 ## Why root inside the container
 
@@ -286,8 +331,8 @@ The Serena image additionally depends on:
 - `SERENA_GOPLS_VERSION`.
 
 For maximum image reuse, keep image-level configuration generic and put
-project-specific instructions in the mounted/source project `AGENTS.md` or
-another project-specific runtime mount.
+project-specific context directly in the mounted/source project:
+`AGENTS.md`, `.codex/config.toml`, and `.serena/`.
 
 If two projects genuinely need different image-level dependencies or Codex
 defaults, give them different image tags in their respective `.env` files,
@@ -350,13 +395,12 @@ This preserves login credentials, sessions/history, Codex-managed state, and Go/
 
 Named volumes are scoped by `COMPOSE_PROJECT_NAME`, so each project should use its own value.
 
-The image-owned global instructions file is synchronized into:
+A small image-owned global policy is synchronized into
+`/root/.codex/AGENTS.md` on container startup. It describes only the generic
+container/runtime rules. Repository-specific instructions belong in
+`/workspace/AGENTS.md`.
 
-```text
-/root/.codex/AGENTS.md
-```
-
-on container startup. Other state in `CODEX_HOME` is left intact.
+Other state in `CODEX_HOME` is left intact.
 
 ## Codex configuration
 
@@ -372,7 +416,7 @@ Available values in `.env`:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CODEX_AGENTS_FILE` | `templates/AGENTS.project.md` | Global image-provided `AGENTS.md` source |
+| `CODEX_AGENTS_FILE` | `templates/AGENTS.global.md` | Generic global image-provided `AGENTS.md` source |
 | `CODEX_MODEL` | empty | Explicit model override; empty uses Codex/account default |
 | `CODEX_MODEL_REASONING_EFFORT` | `high` | Default reasoning effort |
 | `CODEX_PLAN_REASONING_EFFORT` | `high` | Plan-mode reasoning effort |
@@ -398,9 +442,10 @@ Do not put API keys, tokens, passwords, or other credentials into build argument
 
 ### AGENTS.md precedence
 
-`CODEX_AGENTS_FILE` supplies global instructions for the environment.
+`CODEX_AGENTS_FILE` supplies only generic global instructions for the
+container environment. The default is `templates/AGENTS.global.md`.
 
-A target repository can still contain its own:
+A target repository should keep its project-specific instructions in:
 
 ```text
 /workspace/AGENTS.md
@@ -519,7 +564,8 @@ Use:
 templates/AGENTS.project.md
 ```
 
-as the starting point for project instructions.
+as the starting point for `PROJECT_DIR/AGENTS.md`. The template is not used as
+the default global image policy.
 
 Keep stable development rules in `AGENTS.md` rather than relying on remembered chat context alone.
 
