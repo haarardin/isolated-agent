@@ -350,6 +350,61 @@ make build-project
 make build-serena
 ```
 
+### Migration after upgrading existing project contexts
+
+If you already have an `isolated-agent` project context created before the
+workspace-context change, two existing local artifacts can preserve the old
+behavior even after pulling the updated repository.
+
+First, check the local `.env`. Older contexts may still contain:
+
+```dotenv
+CODEX_AGENTS_FILE=templates/AGENTS.project.md
+```
+
+That explicit value overrides the new Makefile/default configuration. Remove
+the line entirely to use the repository default, or change it to:
+
+```dotenv
+CODEX_AGENTS_FILE=templates/AGENTS.global.md
+```
+
+Second, existing Podman images are intentionally reused by `make ensure-images`.
+An already-built `PROJECT_IMAGE` or `SERENA_IMAGE` may therefore still
+contain the previous image-global `AGENTS.project.md`.
+
+After updating an existing context, rebuild the affected shared image layers
+once:
+
+```bash
+make build-project
+make build-serena
+```
+
+Then recreate the agent using the desired runtime:
+
+```bash
+make up
+```
+
+or, for Serena:
+
+```bash
+make up-serena
+```
+
+After this one-time migration, normal startup can return to:
+
+```bash
+make ensure-images
+```
+
+Remember that image tags are shared by the current rootless Podman host user.
+Rebuilding `PROJECT_IMAGE` and `SERENA_IMAGE` updates those tags for every
+project context that uses the same names. If different contexts intentionally
+need different image-level configuration, assign distinct image tags before
+rebuilding.
+
 ### Rebuild rules
 
 Use:
