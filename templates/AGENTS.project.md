@@ -2,6 +2,11 @@
 
 Adapt this file and place it at the root of the target project as AGENTS.md.
 
+The target project is mounted at /workspace. Keep repository-specific Codex
+configuration in /workspace/.codex/config.toml and Serena project state in
+/workspace/.serena/. These are project context; /root/.codex and /root/.serena
+are reserved for runtime/user-global state.
+
 ## Project
 
 Describe the application and important architecture boundaries here.
@@ -17,6 +22,10 @@ Writable project directory:
 ```
 
 Do not assume access to host files outside this directory.
+
+If AGENTS.md, .codex/ or .serena/ should remain local to one clone, exclude
+them with that target repository's .git/info/exclude rather than changing the
+shared .gitignore.
 
 ## Services
 
