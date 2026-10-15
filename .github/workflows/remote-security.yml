@@ -108,6 +108,9 @@ jobs:
                 echo "Root filesystem unexpectedly writable" >&2
                 exit 1
               fi
+              # Scratch bind files were created as root inside Docker.
+              # Return them to the host runner UID for trap cleanup.
+              chown -R "$(stat -c '%u:%g' /workspace)" /workspace/Codex
             '
           test "$(cat "$scratch/Codex/remote-test/result.txt")" = remote-ok
       - name: Check experimental CLI subcommands (without login)
