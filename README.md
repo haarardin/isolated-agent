@@ -177,6 +177,20 @@ Stop the environment:
 make down
 ```
 
+## Android Remote without a selected project
+
+Codex may initialize new projectless Android threads under
+`/root/Documents/Codex`. The agent's root filesystem remains read-only,
+so the project image now maps `/root/Documents -> /workspace` using
+an image-baked symlink. Those new folders are stored under the
+existing `PROJECT_DIR/Codex` on the host, without a new mount or
+relaxing sandbox settings.
+
+On existing deployments, run `make build-project`, then
+`make recreate-agent` and `make remote-start` (for Serena users,
+rebuild `make build-serena` and restart with `make up-serena`).
+See [Android workspace details](docs/remote-control.md#android-projectless-workspaces-and-read-only-root).
+
 ## Headless Codex Remote Control (Android experiment)
 
 The official Codex CLI can run an experimental managed app-server
