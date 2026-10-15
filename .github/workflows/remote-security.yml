@@ -51,6 +51,16 @@ jobs:
               assert not sv.get('privileged',False)
               assert not sv.get('network_mode')
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
+              # Remote Control defaults to ~/Documents. Its mount must alias
+              # the approved workspace, even in offline/Serena/example profiles.
+              mounts={v['target']:v for v in sv['volumes']}
+              workspace=mounts['/workspace']
+              documents=mounts['/root/Documents']
+              assert workspace['type']=='bind',workspace
+              assert documents['type']=='bind',documents
+              assert documents['source']==workspace['source'],(name,documents,workspace)
+              assert not workspace.get('read_only',False),name
+              assert not documents.get('read_only',False),name
           assert set(offline['services'])=={'agent'}
           for conf in (web,example,serena):
               assert 'squid' in conf['services']
