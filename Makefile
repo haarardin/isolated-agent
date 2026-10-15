@@ -256,7 +256,7 @@ down-example:
 	$(COMPOSE_EXAMPLE) down
 
 migrate-network:
-	@[[ "$(CONFIRM)" == YES ]] || { echo "Set CONFIRM=YES; stop active Codex sessions first"; exit 1; }
+	@test "$(CONFIRM)" = "YES" || { echo "Set CONFIRM=YES; stop active Codex sessions first"; exit 1; }
 	$(COMPOSE_SERENA_EXAMPLE) down
 	@$(MAKE) up
 
