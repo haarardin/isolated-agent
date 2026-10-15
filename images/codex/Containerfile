@@ -3,6 +3,15 @@ FROM ${BASE_IMAGE}
 
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
     && codex --version
+# The persistent codex-state volume masks the image's /root/.codex folder.
+# Stage the standalone managed CLI for the remote-control daemon so the
+# entrypoint can seed it without clobbering user auth/history.
+RUN mkdir -p /opt/isolated-agent/codex-standalone \
+    && if [ -x /root/.codex/packages/standalone/current/codex ]; then \
+         cp -a /root/.codex/packages/standalone/. /opt/isolated-agent/codex-standalone/; \
+       else \
+         echo 'WARNING: installer did not produce standalone managed Codex; Remote Control needs runtime verification' >&2; \
+       fi
 
 WORKDIR /workspace
 

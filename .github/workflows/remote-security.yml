@@ -1,0 +1,94 @@
+name: Remote Control and egress security
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/remote-control-network-isolation]
+  workflow_dispatch:
+jobs:
+  config-and-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static regression tests and subnet collisions
+        run: |
+          bash scripts/test-security-static.sh
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          make test-image-reuse-static
+          make test-project-context-static
+          make test-serena-static
+      - name: Verify Compose web, offline, Serena and optional services
+        run: |
+          mkdir -p .state
+          AGENT_SUBNET=10.89.71.0/24 bash scripts/prepare-web.sh
+          for profile in base web example serena; do
+            case "$profile" in
+              base) files="-f compose.yaml";;
+              web) files="-f compose.yaml -f compose.web.yaml";;
+              example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml";;
+              serena) files="-f compose.yaml -f compose.web.yaml -f compose.serena.yaml";;
+            esac
+            docker compose $files config --format json > "/tmp/$profile.json"
+          done
+          python3 - <<'PY'
+          import json
+          def load(name):
+              with open('/tmp/'+name+'.json') as f:
+                  return json.load(f)
+          offline=load('base')
+          web=load('web')
+          example=load('example')
+          serena=load('serena')
+          for name,conf in [('offline',offline),('web',web),('example',example),('serena',serena)]:
+              sv=conf['services']['agent']
+              assert set(sv['networks'])=={'isolated-dev'},(name,sv['networks'])
+              assert conf['networks']['isolated-dev']['internal'] is True
+              assert sv['read_only'] is True
+              assert sv['cap_drop']==['ALL']
+              assert not sv.get('ports')
+              assert not sv.get('privileged',False)
+              assert not sv.get('network_mode')
+              assert any(v['target']=='/root/.codex' for v in sv['volumes'])
+          assert set(offline['services'])=={'agent'}
+          for conf in (web,example,serena):
+              assert 'squid' in conf['services']
+              assert set(conf['services']['squid']['networks'])=={'isolated-dev','outbound'}
+              assert not conf['services']['squid'].get('ports')
+          assert set(example['services'])=={'agent','postgres','redis','squid'}
+          for s in ('postgres','redis'):
+              assert set(example['services'][s]['networks'])=={'isolated-dev'}
+              assert not example['services'][s].get('ports')
+          assert serena['services']['agent']['image'].endswith('isolated-agent-serena:dev')
+          print('All Compose security profiles validated')
+          PY
+      - name: Squid ACL syntax check with generated CIDRs
+        run: |
+          docker run --rm --network none --entrypoint /usr/sbin/squid \
+            -v "$PWD/.state/squid.conf:/etc/squid/squid.conf:ro" \
+            -v "$PWD/.state/blocked-cidrs.txt:/etc/squid/blocked-cidrs.txt:ro" \
+            ubuntu/squid:6.6-24.04_edge -k parse -f /etc/squid/squid.conf
+  codex-cli-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build official Codex CLI installation layers
+        run: |
+          docker build -f images/base/Containerfile -t localhost/isolated-agent-base:dev .
+          docker build -f images/codex/Containerfile -t localhost/isolated-agent-codex:dev .
+      - name: Check experimental CLI subcommands (without login)
+        run: |
+          docker run --rm --entrypoint /bin/bash --network none \
+            localhost/isolated-agent-codex:dev -ec '
+              codex --version
+              codex remote-control --help >/dev/null
+              codex remote-control start --help >/dev/null
+              codex remote-control pair --help >/dev/null
+              codex remote-control stop --help >/dev/null
+              codex app-server daemon --help >/dev/null
+              test -x /root/.codex/packages/standalone/current/codex
+            '

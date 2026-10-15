@@ -15,7 +15,7 @@ Host Linux
 │      │
 │      └──── bind mount ───────────────┐
 │                                      │
-└── isolated compose network           │
+└── isolated Compose network           │
        │                               │
        ├── agent                       │
        │    ├── Codex CLI              │
@@ -32,6 +32,9 @@ Host Linux
        ├── postgres      optional
        ├── redis         optional
        └── other project services
+
+Filtered Web mode: agent -> Squid on internal network -> separate outbound network -> public Internet.
+Offline mode: internal network only; Squid absent.
 ```
 
 The agent does **not** receive the host Podman/Docker socket. Service orchestration stays outside the agent sandbox.
@@ -140,11 +143,15 @@ built again.
 Use `make build` and `make build-serena` when you intentionally want to
 rebuild image layers.
 
-Start the agent:
+Start the agent with **filtered web egress** (internal network + Squid):
 
 ```bash
 make up
 ```
+
+Use `make offline` for a network-isolated agent **without Internet**.
+Existing contexts with the old `internal: false` Podman network must migrate
+explicitly; see [network isolation](docs/network-isolation.md).
 
 Authenticate Codex once:
 
@@ -169,6 +176,39 @@ Stop the environment:
 ```bash
 make down
 ```
+
+## Headless Codex Remote Control (Android experiment)
+
+The official Codex CLI can run an experimental managed app-server
+daemon without a GUI. The agent's existing Codex auth/session state
+persists under `/root/.codex`, and the CLI's managed daemon stores
+its state there too.
+
+```bash
+make build-codex && make build-project  # one-time after this change
+make up
+make login                             # device auth, if necessary
+make remote-start
+make remote-status
+make remote-doctor
+make remote-pair                        # prints sensitive temporary code
+# From Android: Codex/Remote -> look for a supported host pairing flow
+make remote-stop
+```
+
+Additional commands: `make remote-logs` (safe lifecycle events),
+`make network-check` (real Podman test), `make offline`,
+`make offline-example`, `make offline-serena`,
+`CONFIRM=YES make migrate-network`.
+
+**Important:** public mobile setup documentation currently explains
+desktop-initiated QR pairing on macOS/Windows. Experimental Linux CLI
+manual pairing is documented but may not have an Android entry screen
+in your app version. No successful Android E2E is claimed here.
+
+Read [Remote Control guide](docs/remote-control.md),
+[network topology, migration & checks](docs/network-isolation.md)
+and [security model](docs/security.md) before pairing or deploying on VPS.
 
 ## Recommended multi-project workflow
 
@@ -803,3 +843,27 @@ services or persistent volumes, use `make recreate-agent`.
 
 See [docs/serena.md](docs/serena.md) for architecture, permissions, project
 `.serena/` artifacts, benchmark design, and rollback steps.
+
+
+## Network security change (migration required)
+
+The former `isolated-dev` network was `internal: false`.
+It is now `internal: true` with a configurable
+`AGENT_SUBNET` (default `10.89.71.0/24`). An existing unrestricted
+network **must not** be silently reused. Run `make preflight` to
+identify it, then explicitly run
+`CONFIRM=YES make migrate-network` (after saving work).
+That stops project containers using Compose `down` **without `-v`**,
+preserving Codex, PostgreSQL, cache and Serena named volumes.
+
+`make up` starts Squid separately dual-homed between internal and
+outbound networks; Codex itself has no direct Internet route.
+`make offline` removes Squid and leaves native intra-project DB access
+available. Set additional denied CIDRs in `BLOCK_CIDRS` for host
+public IPs, VPN and other sensitive networks.
+
+`make remote-start` requires filtered Internet and the managed Codex
+CLI. It must be rerun after agent container recreation; the daemon
+is detached **inside** that container, not a host daemon.
+See [docs/network-isolation.md](docs/network-isolation.md) for
+remaining limitations and the Debian verification steps.

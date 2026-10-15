@@ -1,0 +1,24 @@
+# Only Squid connects to an outbound network; never attach agent there.
+services:
+  squid:
+    image: ${SQUID_IMAGE:-docker.io/ubuntu/squid:6.6-24.04_edge}
+    entrypoint: ["/usr/sbin/squid"]
+    command: ["-N", "-f", "/etc/squid/squid.conf"]
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./.state/squid.conf:/etc/squid/squid.conf:ro
+      - ./.state/blocked-cidrs.txt:/etc/squid/blocked-cidrs.txt:ro
+    networks:
+      - isolated-dev
+      - outbound
+networks:
+  outbound:
+    internal: false
+x-podman:
+  in_pod: false

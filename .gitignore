@@ -7,3 +7,6 @@ workspace/*
 *.swp
 *.swo
 .DS_Store
+
+# Proxy configuration, lifecycle events; never publish local runtime state.
+.state/
