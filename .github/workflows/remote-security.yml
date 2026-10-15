@@ -22,7 +22,10 @@ jobs:
       - name: Verify Compose web, offline, Serena and optional services
         run: |
           mkdir -p .state
-          AGENT_SUBNET=10.89.71.0/24 bash scripts/prepare-web.sh
+          # Standalone CI has no rootless Podman network. Seed a validated
+          # fixture for the Squid config renderer, without creating a network.
+          printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
+          COMPOSE_PROJECT_NAME=isolated-agent-demo bash scripts/prepare-web.sh
           for profile in base web example serena; do
             case "$profile" in
               base) files="-f compose.yaml";;
@@ -44,7 +47,9 @@ jobs:
           for name,conf in [('offline',offline),('web',web),('example',example),('serena',serena)]:
               sv=conf['services']['agent']
               assert set(sv['networks'])=={'isolated-dev'},(name,sv['networks'])
-              assert conf['networks']['isolated-dev']['internal'] is True
+              internal_net=conf['networks']['isolated-dev']
+              assert internal_net['external'] is True,internal_net
+              assert internal_net['name']=='isolated-agent-demo_isolated-dev',internal_net
               assert sv['read_only'] is True
               assert sv['cap_drop']==['ALL']
               assert not sv.get('ports')

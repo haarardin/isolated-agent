@@ -181,6 +181,20 @@ Stop the environment:
 make down
 ```
 
+## Dedicated, reusable network for each project
+
+Each `COMPOSE_PROJECT_NAME` receives its own isolated Podman network
+`<project>_isolated-dev`. A new network is created automatically
+before `make up`; an existing network of the same name is **reused
+only after verifying internal isolation, CIDR and ownership labels**.
+`AGENT_SUBNET=auto` avoids IP collisions between independent
+projects, while `make network-info` shows the selected/existing subnet.
+
+The network is marked `external: true` in Compose, so
+`make down` leaves it in place. The agent never joins Squid's outbound
+network. For details, explicit CIDRs and legacy migration, see
+[network isolation](docs/network-isolation.md).
+
 ## Start Codex Remote Control from Android
 
 For a complete step-by-step setup, **start here**:

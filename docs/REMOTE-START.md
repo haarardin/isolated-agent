@@ -45,7 +45,7 @@ verification below.
    ```dotenv
    COMPOSE_PROJECT_NAME=isolated-agent-demo
    PROJECT_DIR=/home/USER/projects/codex-remote-workspace
-   AGENT_SUBNET=10.89.71.0/24
+   AGENT_SUBNET=auto
    BLOCK_CIDRS=
    ```
 
@@ -56,16 +56,19 @@ verification below.
    directory or only the repository you intend to grant Codex access to.
    Keep the other `.env` settings from `.env.example`.
 
-   The default CIDR must not overlap other Podman networks. For
-   multiple clones choose distinct `COMPOSE_PROJECT_NAME` and
-   `AGENT_SUBNET`. `BLOCK_CIDRS` optionally denies additional
+   The default `auto` mode allocates a free subnet per project and
+   safely reuses an existing matching project network. For multiple
+   independent clones, choose distinct `COMPOSE_PROJECT_NAME`;
+   this also prevents collisions in Compose-named volumes. To select
+   a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.
 
 3. **Check dependencies, scripts and network topology.**
 
    ```bash
    make network-static
-   make preflight
+   make preflight           # plan: no changes to Podman networks
+   make network-info        # show planned or reusable per-project network
    ```
 
    Requirements: rootless Podman, explicit `podman-compose`, Python 3,
@@ -207,8 +210,8 @@ restart the managed daemon with `make remote-start`. Do not use this
 command to fix an unrelated subnet collision with another project,
 and do not remove someone else's attached network.
 
-If `make preflight` prints **"Network preflight OK ... available"**,
-as it did on a new installation, **skip migration**.
+If `make preflight` reports `Project network planned` (fresh
+installation) or `Project network reused`, **skip migration**.
 
 ## D. Regular use after an agent restart/recreation
 

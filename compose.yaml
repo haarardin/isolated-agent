@@ -38,13 +38,12 @@ services:
 volumes:
   codex-state:
   agent-cache:
+# The host-side preflight creates this project-specific network, or validates
+# and reuses the existing one. External ownership prevents compose down from
+# deleting it while other services may still be attached.
 networks:
   isolated-dev:
-    internal: true
-    driver: bridge
-    enable_ipv6: false
-    ipam:
-      config:
-        - subnet: ${AGENT_SUBNET:-10.89.71.0/24}
+    name: ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}_isolated-dev
+    external: true
 x-podman:
   in_pod: false

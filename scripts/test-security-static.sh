@@ -8,7 +8,16 @@ agent=Path("compose.yaml").read_text()
 web=Path("compose.web.yaml").read_text()
 mk=Path("Makefile").read_text()
 remote=Path("scripts/remote-control.sh").read_text()
-assert "internal: true" in agent
+assert "external: true" in agent
+assert "name: ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}_isolated-dev" in agent
+assert "network-ensure:" in mk
+assert "scripts/network-preflight.py --ensure" in mk
+netcode = Path("scripts/network-preflight.py").read_text()
+assert '"--internal"' in netcode
+assert '"--subnet"' in netcode
+assert "verify_existing" in netcode
+assert "AGENT_SUBNET ?= auto" in mk
+assert "bash scripts/migrate-network.sh" in mk
 assert "enable_ipv6: false" in agent
 assert agent.count("      - isolated-dev")==1
 assert "codex-state:/root/.codex" in agent
@@ -30,6 +39,7 @@ assert "/root/Documents:" not in agent, "Do not introduce extra host mounts"
 assert "cap_drop:\n      - ALL" in agent
 assert "in_pod: false" in agent
 assert "      - outbound" in web and "      - isolated-dev" in web
+assert "podman network rm" in Path("scripts/migrate-network.sh").read_text()
 assert "http_access deny blocked_dst" in Path("config/squid.conf").read_text()
 assert "http_access deny !sandbox_clients" in Path("config/squid.conf").read_text()
 assert "http_access deny to_localhost" in Path("config/squid.conf").read_text()

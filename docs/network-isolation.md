@@ -5,6 +5,62 @@ pair an Android device, see
 [REMOTE-START.md](REMOTE-START.md). The network migration below is
 **conditional**, not part of a fresh installation.
 
+## Network per Compose project: create or safely reuse
+
+Every deployment has a **stable, project-specific internal network name**:
+
+```text
+<COMPOSE_PROJECT_NAME>_isolated-dev
+```
+
+For example, `ai-orders_isolated-dev` and
+`ai-billing_isolated-dev` are **two different** Podman networks.
+Use a distinct `COMPOSE_PROJECT_NAME` for each independent project:
+otherwise the same name intentionally means the same network **and the
+same Compose-scoped named volumes**.
+
+`AGENT_SUBNET=auto` is the default. Before starting any containers:
+
+1. `make preflight` inspects Podman networks **without modifying them**.
+2. `make network-ensure` searches for the expected name.
+3. If the name exists, it validates `internal: true`, bridge driver,
+   IPv4-only configuration, project labels (if present), and the subnet.
+   A valid network is **reused**. A foreign, unrestricted or mismatched
+   network causes an error, not silent attachment.
+4. If missing, it selects a free `/24` from `10.203.0.0/16` using a
+   stable project-name hash and collision checks, then creates the
+   network with rootless `podman network create --internal`.
+5. The chosen network and CIDR are saved in ignored
+   `.state/network.json`; Squid's source ACL is generated from the
+   **actual** network subnet, not from a hardcoded default.
+
+```bash
+# .env: independent project identity and automatic subnet:
+COMPOSE_PROJECT_NAME=ai-orders
+AGENT_SUBNET=auto
+
+make network-info      # check plan/existing network; does NOT create
+make network-ensure    # create if missing, reuse if it exists safely
+make up                # also calls network-ensure automatically
+podman network inspect ai-orders_isolated-dev
+```
+
+For a specific subnet, set `AGENT_SUBNET=10.210.31.0/24` and rerun
+preflight. This **does not move** an already created network: if its
+CIDR differs, startup fails until you intentionally migrate or change
+the configuration. The auto-allocator only inspects **Podman** networks;
+also check host LAN/VPN routes separately and choose a non-overlapping
+explicit CIDR if necessary.
+
+The `isolated-dev` network is `external: true` in Compose: **Compose
+does not own its lifecycle**. `make down` and normal container
+recreation leave it intact for other explicitly attached containers.
+There is no automatic deletion just because the agent stops.
+`outbound` remains a separate Compose-managed network for Squid only.
+A shared network has shared L2/L3 access for attached containers;
+never connect independent/untrusted project containers to it merely
+because a name matches.
+
 ## Topology
 
 ```text
@@ -18,8 +74,10 @@ Codex agent (internal-only network, AGENT_SUBNET)
 ```
 
 Only Squid is dual-homed. `compose.yaml` has `internal: true`
-with the per-project `AGENT_SUBNET`; `compose.web.yaml` adds Squid
-and outbound network. The agent has one isolated network attachment
+with the project's resolved `AGENT_SUBNET`; `compose.web.yaml` adds Squid
+and outbound network. The internal network is prepared by a host script
+and declared `external: true` in Compose, so the `internal` property
+is checked in **Podman inspect**, not inferred from the external Compose stanza. The agent has one isolated network attachment
 in both modes; `HTTP_PROXY` alone is NOT a security boundary.
 
 ```bash
@@ -41,17 +99,16 @@ ports. This widens egress and must be reviewed for production.
 A forwarded request to a private endpoint is denied even when the
 client tries HTTP CONNECT.
 
-`AGENT_SUBNET` defaults to `10.89.71.0/24`, **not** the Webtop demo's
-`10.89.70.0/24`. Each clone/Compose project needs a distinct subnet.
-`scripts/network-preflight.py` rejects overlapping Podman subnets and
-an existing same-name network which is not internal or has a wrong
-subnet. Never silently reuse an older unrestricted network.
+`AGENT_SUBNET` defaults to `auto`, not a shared fixed CIDR. A fresh
+project receives a unique free `/24` from the allocation pool.
+`scripts/network-preflight.py` checks overlaps and validates reuse.
+Never silently attach to an older unrestricted same-name network.
 
 Change and test configuration:
 
 ```bash
 # .env examples:
-AGENT_SUBNET=10.89.72.0/24
+AGENT_SUBNET=auto
 BLOCK_CIDRS=192.0.2.10/32,203.0.113.0/24
 make preflight
 make up
@@ -67,7 +124,11 @@ complete substitute for a hardened host firewall.
 ## Migration from unrestricted network
 
 The old project used `internal: false`. A stale network created with
-that configuration must be stopped/recreated, not reused. If preflight
+that configuration must be stopped/recreated, not reused. The migration
+target now explicitly removes **only that same project's old
+unrestricted network** after stopping its containers and checking that
+nothing remains attached; it does not remove any unrelated network.
+Regular Compose `down` will no longer delete the new external network. If preflight
 reports the subnet is **available** and no old project network is
 present, `migrate-network` is unnecessary: simply `make up`.
 A collision involving somebody else's network must be resolved by
@@ -98,6 +159,7 @@ make ps
 make doctor
 make network-check
 podman network ls
+make network-info
 podman network inspect <project>_isolated-dev
 ```
 
