@@ -34,9 +34,19 @@ secure_network() {
   all="$(podman inspect "$squid_id" --format '{{json .NetworkSettings.Networks}}')"
   python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==2,"Squid must use isolated and outbound networks"' "$all"
 }
+# Catch GUI-first default-folder failures before the Android user spends a turn.
+documents_ready() {
+  if podman exec "$id" sh -ec 'mkdir -p /root/Documents && test -w /root/Documents && test -w /workspace' >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "ERROR: Remote Control cannot write to /root/Documents or /workspace." >&2
+  echo "Pull PR #6 and recreate only the agent (make recreate-agent), keeping named volumes." >&2
+  return 1
+}
 case "$mode" in
  start)
    secure_network || exit 1
+   documents_ready || exit 1
    if ! podman exec "$id" codex remote-control start --json >/dev/null 2>&1; then
      event start-failed
      echo "Remote start failed. Verify Codex login, version, managed install and proxy." >&2; exit 1
@@ -71,6 +81,8 @@ case "$mode" in
  doctor)
    echo "Compose project: $COMPOSE_PROJECT_NAME"
    secure_network || exit 1
+   documents_ready || exit 1
+   echo "Remote Documents work folder: writable (same host project as /workspace)"
    podman exec "$id" sh -c 'codex --version; codex remote-control --help >/dev/null && echo "Remote Control CLI: available"; test -w "$CODEX_HOME" && echo "CODEX_HOME: writable"'
    if running; then echo "Managed daemon: running"; else echo "Managed daemon: stopped"; fi
    nets="$(podman inspect "$id" --format '{{json .NetworkSettings.Networks}}')"
