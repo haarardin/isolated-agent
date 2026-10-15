@@ -187,6 +187,7 @@ its state there too.
 ```bash
 make build-codex && make build-project  # one-time after this change
 make up
+make recreate-agent                   # deploy rebuilt image; preserves state
 make login                             # device auth, if necessary
 make remote-start
 make remote-status
