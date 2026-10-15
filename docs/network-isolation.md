@@ -103,12 +103,21 @@ For command line/manual checks within `make shell`:
 # Explicitly bypass environment proxy; must fail
 curl --noproxy '*' -v --connect-timeout 3 https://1.1.1.1/
 # Must work via Squid:
-curl -I -x http://squid:3128 https://example.com/
-# Must return 403 via proxy:
-curl -I -x http://squid:3128 http://169.254.169.254/
+curl -I --noproxy '' -x http://squid:3128 https://example.com/
+# Must return 403 via Squid; do NOT allow NO_PROXY to bypass proxy:
+curl -I --noproxy '' -x http://squid:3128 http://127.0.0.1/
+curl -I --noproxy '' -x http://squid:3128 http://169.254.169.254/
 # Native TCP to allowed peer DB remains possible:
 getent hosts postgres redis
 ```
+
+**Squid ACL testing pitfall:** `NO_PROXY` (and `no_proxy`) includes
+`127.0.0.1`. Even with an explicit `-x http://squid:3128`, curl may
+**bypass the proxy** for that address, then report HTTP `000` because
+nothing is listening on the container's loopback. This does not prove
+Squid allowed or denied the request. Use `--noproxy ''` to force a proxy
+test, and `--noproxy '*'` only when deliberately testing the absence
+of a direct route. `make network-check` uses both forms accordingly.
 
 `NO_PROXY` includes PostgreSQL/Redis service names so native local
 clients connect to peers directly (the Squid ACL only applies to
