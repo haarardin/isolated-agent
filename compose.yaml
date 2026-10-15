@@ -21,6 +21,10 @@ services:
       no_proxy: localhost,127.0.0.1,::1,postgres,redis
     volumes:
       - ${PROJECT_DIR:-./workspace}:/workspace:rw
+      # Codex Remote Control may initialize ~/Documents as its default
+      # work folder. Alias the SAME approved host project directory here:
+      # no additional host path is exposed, no extra writable root layer.
+      - ${PROJECT_DIR:-./workspace}:/root/Documents:rw
       - codex-state:/root/.codex
       - agent-cache:/root/.cache
     read_only: true
