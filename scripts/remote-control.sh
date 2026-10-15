@@ -75,10 +75,12 @@ case "$mode" in
    if running; then echo "Managed daemon: running"; else echo "Managed daemon: stopped"; fi
    nets="$(podman inspect "$id" --format '{{json .NetworkSettings.Networks}}')"
    python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==1,"agent must have one network"; print("Agent network: "+next(iter(n)))' "$nets"
-   if podman exec "$id" curl -fILsS --max-time 15 -x http://squid:3128 https://chatgpt.com/ -o /dev/null >/dev/null 2>&1; then
-     echo "OpenAI HTTPS via Squid: reachable"
+   # HTTP status may be 403 for anonymous curl even when TLS/CONNECT works.
+   # Inspect CONNECT outcome instead of treating an HTTP 403 as network failure.
+   if proxy_connect="$(podman exec "$id" curl -sS --connect-timeout 8 --max-time 15 -x http://squid:3128 -o /dev/null -w '%{http_connect}' https://chatgpt.com/ 2>/dev/null)" && [[ "$proxy_connect" == 200 ]]; then
+     echo "OpenAI HTTPS tunnel via Squid: reachable (CONNECT 200)"
    else
-     echo "OpenAI HTTPS via Squid: failed; check Squid/DNS/ACL"
+     echo "OpenAI HTTPS tunnel: failed (CONNECT status or TLS problem); check Squid/DNS/ACL"
      exit 1
    fi
    ;;
