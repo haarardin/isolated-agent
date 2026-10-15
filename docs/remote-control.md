@@ -1,5 +1,10 @@
 # Codex Remote Control (experimental headless mode)
 
+**Start here for exact commands:** [REMOTE-START.md](REMOTE-START.md)
+covers both a fresh rootless-Podman installation and upgrading an
+existing agent, then `make remote-start` / `make remote-pair`,
+Android verification, recovery and startup after container recreation.
+
 This is an opt-in mode for the **official Codex CLI** already installed in
 this repository. No desktop GUI, Linux `.deb`, host SSH agent, systemd in
 the container or incoming TCP listener is required.
@@ -19,9 +24,10 @@ cp -n .env.example .env
 # Edit .env: PROJECT_DIR, distinct COMPOSE_PROJECT_NAME, unique AGENT_SUBNET.
 # Preserve existing .env / named volumes / credentials.
 make network-static
-make preflight       # intentionally rejects an old unrestricted network
-# Existing install ONLY, after saving active work:
-CONFIRM=YES make migrate-network
+make preflight       # must pass on a new project
+# ONLY if preflight rejects the old same-project internal:false network,
+# after saving work and reviewing the state:
+# CONFIRM=YES make migrate-network
 ```
 
 The migration stops Compose containers but **never uses down -v**.
@@ -46,6 +52,14 @@ make login             # one-time ChatGPT device authorization
 make doctor
 make network-check
 ```
+
+**Important:** on an existing installation, a changed project
+`Containerfile` requires `make build-project && make recreate-agent`
+before starting Remote Control. The project image now includes the
+writable `/root/Documents -> /workspace` symlink used by projectless
+Android threads. For Serena, build its derived layer and use
+`make up-serena` instead. See the
+[upgrade commands](REMOTE-START.md#b-upgrade-an-existing-agent-images-and-persistent-data-already-present).
 
 ## Headless remote commands
 
@@ -104,6 +118,12 @@ timestamped lifecycle events, **not** raw Codex log output.
 9. Recreate the container only after saving work; repeat
    `make remote-start`, verify CODEX_HOME session/auth continuity
    and whether Android rediscovers the host. Re-pair if required.
+
+An Android device in the current project test successfully displayed
+and contacted a paired remote host. This confirms connectivity/pairing
+on that app build, **not** successful execution of a complete turn.
+Check the writable `~/Documents` alias and verify a harmless file write
+from Android using [REMOTE-START.md](REMOTE-START.md).
 
 **Important product limitation:** the mainstream
 [Remote connections guide](https://learn.chatgpt.com/docs/remote-connections)

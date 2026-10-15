@@ -121,6 +121,10 @@ We still keep the outer controls:
 
 ## Quick start
 
+For **Android Remote Control**, follow the complete
+[Remote Control launch guide](docs/REMOTE-START.md) rather than
+only the generic CLI instructions below.
+
 Copy the environment file:
 
 ```bash
@@ -177,73 +181,41 @@ Stop the environment:
 make down
 ```
 
-## Android Remote without a selected project
+## Start Codex Remote Control from Android
 
-Codex may initialize new projectless Android threads under
-`/root/Documents/Codex`. The agent's root filesystem remains read-only,
-so the project image now maps `/root/Documents -> /workspace` using
-an image-baked symlink. Those new folders are stored under the
-existing `PROJECT_DIR/Codex` on the host, without a new mount or
-relaxing sandbox settings.
+For a complete step-by-step setup, **start here**:
+**[REMOTE-START.md — first install, existing agent upgrade, Android pairing,
+validation and troubleshooting](docs/REMOTE-START.md)**.
 
-On existing deployments, run `make build-project`, then
-`make recreate-agent` and `make remote-start` (for Serena users,
-rebuild `make build-serena` and restart with `make up-serena`).
-See [Android workspace details](docs/remote-control.md#android-projectless-workspaces-and-read-only-root).
-
-## Remote Control Documents compatibility
-
-Android Remote Control may initialize `/root/Documents` before starting
-a turn. To retain `read_only: true`, the derived project image creates
-a **symbolic link `/root/Documents → /workspace`**. The only host bind
-remains `PROJECT_DIR:/workspace`; no other host directory is exposed.
-Because the symlink is baked into the image, **rebuild it first**:
+The quick operational sequence, **after the correct images are built and
+the agent is initialized**, is:
 
 ```bash
-git pull --ff-only
-make build-project
-make recreate-agent
-make remote-start
-make remote-doctor
-```
-
-For the Serena image, run `make build-serena && make up-serena` instead
-of `make recreate-agent`. No named volume deletion or network
-migration is required. See [Remote Control guide](docs/remote-control.md).
-
-## Headless Codex Remote Control (Android experiment)
-
-The official Codex CLI can run an experimental managed app-server
-daemon without a GUI. The agent's existing Codex auth/session state
-persists under `/root/.codex`, and the CLI's managed daemon stores
-its state there too.
-
-```bash
-make build-codex && make build-project  # one-time after this change
-make up
-make recreate-agent                   # deploy rebuilt image; preserves state
-make login                             # device auth, if necessary
-make remote-start
+make up                # agent + Squid; online filtered-egress mode
+make login             # only if not already signed in to Codex
+make remote-start      # detached managed Codex daemon
 make remote-status
 make remote-doctor
-make remote-pair                        # prints sensitive temporary code
-# From Android: Codex/Remote -> look for a supported host pairing flow
-make remote-stop
+make remote-pair       # only when pairing a new Android device
 ```
 
-Additional commands: `make remote-logs` (safe lifecycle events),
-`make network-check` (real Podman test), `make offline`,
-`make offline-example`, `make offline-serena`,
-`CONFIRM=YES make migrate-network`.
+**Do not skip the image build and recreation steps in the linked guide**
+when updating an older container. Remote Android tasks may initialize
+`/root/Documents`, which the updated **project image** maps to
+`/workspace` using an image-baked symlink. Applying this requires
+`make build-project && make recreate-agent` (or rebuilding and starting
+the Serena image). No host port needs to be opened; rootless Podman
+isolation and the existing named volumes are retained.
 
-**Important:** public mobile setup documentation currently explains
-desktop-initiated QR pairing on macOS/Windows. Experimental Linux CLI
-manual pairing is documented but may not have an Android entry screen
-in your app version. No successful Android E2E is claimed here.
+The Android host/pairing flow has been observed on an actual device,
+but successful execution of a whole remote turn must still be verified
+on the Debian host. The official manual-code flow remains experimental
+and may differ across Android versions.
 
-Read [Remote Control guide](docs/remote-control.md),
-[network topology, migration & checks](docs/network-isolation.md)
-and [security model](docs/security.md) before pairing or deploying on VPS.
+Detailed background:
+[Remote Control implementation](docs/remote-control.md) ·
+[network isolation](docs/network-isolation.md) ·
+[security model](docs/security.md).
 
 ## Recommended multi-project workflow
 

@@ -1,5 +1,10 @@
 # Agent network isolation (rootless Podman)
 
+For the exact ordered commands to start the filtered online agent and
+pair an Android device, see
+[REMOTE-START.md](REMOTE-START.md). The network migration below is
+**conditional**, not part of a fresh installation.
+
 ## Topology
 
 ```text
@@ -62,11 +67,17 @@ complete substitute for a hardened host firewall.
 ## Migration from unrestricted network
 
 The old project used `internal: false`. A stale network created with
-that configuration must be stopped/recreated, not reused.
+that configuration must be stopped/recreated, not reused. If preflight
+reports the subnet is **available** and no old project network is
+present, `migrate-network` is unnecessary: simply `make up`.
+A collision involving somebody else's network must be resolved by
+choosing a distinct AGENT_SUBNET, **not** running migration.
 
 ```bash
 # Save Codex sessions; backup persistent state before migrating.
-make preflight  # expected to fail if old network is unrestricted
+make preflight
+# ONLY if it rejects the old network owned by this Compose project
+# as internal:false, and only after saving active work:
 CONFIRM=YES make migrate-network
 make preflight
 make network-check
