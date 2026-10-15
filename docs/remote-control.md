@@ -169,6 +169,57 @@ modify files there. Use a dedicated disposable `PROJECT_DIR` for
 experiments. This alias does not make the container root filesystem
 writable.
 
+## Writable work folder for Android Remote Control
+
+Some Android Codex Remote Control turns initialize `~/Documents`
+(`/root/Documents` in our container), even when the requested task
+only needs to inspect the project. A completely read-only root
+filesystem causes the remote turn to fail with:
+
+```text
+mkdir: cannot create directory '/root/Documents': Read-only file system
+```
+
+We **do not** disable `read_only: true`. Instead, Compose mounts the
+exact same approved host `PROJECT_DIR` twice:
+
+```yaml
+volumes:
+  - ${PROJECT_DIR:-./workspace}:/workspace:rw
+  - ${PROJECT_DIR:-./workspace}:/root/Documents:rw
+```
+
+These are two container paths for **one underlying source directory**.
+`/root/Documents` is not a separate named volume and exposes no
+additional host filesystem. Files created there appear in `/workspace`
+and in `PROJECT_DIR` on the Debian host. Do not store unrelated
+secrets in `PROJECT_DIR`; a paired controller can modify it.
+
+After checking out the updated PR, **recreate only the agent**, not
+its network or database containers:
+
+```bash
+git pull --ff-only
+make recreate-agent       # normal project image
+# If using the Serena image, use make up-serena instead.
+make remote-start         # daemon needs starting after recreation
+make remote-doctor
+```
+
+Directly verify the alias on Debian (without exposing file contents):
+
+```bash
+make shell
+mkdir -p /root/Documents
+test -w /root/Documents && test -w /workspace
+exit
+```
+
+Try a new small remote turn on Android, for example:
+`Run pwd, list the names at /workspace, and describe the project.`
+The previous failed turn may not be resumable; open a new turn if retry
+fails.
+
 ## Troubleshooting
 
 - `remote-control` subcommand missing: check `codex --version` and
