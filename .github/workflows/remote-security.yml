@@ -80,6 +80,29 @@ jobs:
         run: |
           docker build -f images/base/Containerfile -t localhost/isolated-agent-base:dev .
           docker build -f images/codex/Containerfile -t localhost/isolated-agent-codex:dev .
+      - name: Build project agent image with persistent Documents alias
+        run: |
+          docker build -f images/project/Containerfile \
+            --build-arg CODEX_IMAGE=localhost/isolated-agent-codex:dev \
+            -t localhost/isolated-agent-project:ci .
+      - name: Verify projectless Remote workspace on read-only root
+        run: |
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          docker run --rm --read-only --network none \
+            -v "$scratch:/workspace:rw" \
+            --entrypoint /bin/bash localhost/isolated-agent-project:ci -ec '
+              test -L /root/Documents
+              test "$(readlink /root/Documents)" = /workspace
+              mkdir -p /root/Documents/Codex/remote-test
+              printf "remote-ok\n" > /root/Documents/Codex/remote-test/result.txt
+              test "$(cat /workspace/Codex/remote-test/result.txt)" = remote-ok
+              if touch /root/forbidden-write 2>/dev/null; then
+                echo "Root filesystem unexpectedly writable" >&2
+                exit 1
+              fi
+            '
+          test "$(cat "$scratch/Codex/remote-test/result.txt")" = remote-ok
       - name: Check experimental CLI subcommands (without login)
         run: |
           docker run --rm --entrypoint /bin/bash --network none \
