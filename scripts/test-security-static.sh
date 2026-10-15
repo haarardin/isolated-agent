@@ -30,6 +30,8 @@ for target in ("remote-start","remote-pair","remote-status","remote-stop","remot
 for cmd in ("codex remote-control start","codex remote-control pair","codex remote-control stop", "codex app-server daemon version"):
     assert cmd in remote
 assert '>/dev/null 2>&1' in remote, "CLI lifecycle output must not leak to CI logs"
+assert remote.count("secure_network || exit 1") >= 3, "start/pair/doctor must reject unrestricted egress"
+assert "podman network inspect --format" in remote
 assert "CODEX_APPROVAL_POLICY ?= never" in mk
 assert "CODEX_SANDBOX_MODE ?= danger-full-access" in mk
 print("Security and Remote Control static policy: OK")
