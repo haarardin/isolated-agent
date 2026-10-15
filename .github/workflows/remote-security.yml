@@ -22,6 +22,9 @@ jobs:
       - name: Verify Compose web, offline, Serena and optional services
         run: |
           mkdir -p .state
+          # Docker Compose derives its default project name from the checkout
+          # directory. Override that to match the explicit test fixture.
+          export COMPOSE_PROJECT_NAME=isolated-agent-demo
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
