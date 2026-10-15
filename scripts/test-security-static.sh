@@ -13,6 +13,12 @@ assert "enable_ipv6: false" in agent
 assert agent.count("      - isolated-dev")==1
 assert "codex-state:/root/.codex" in agent
 assert "agent-cache:/root/.cache" in agent
+# Remote defaults to ~/Documents; use the exact same approved source as /workspace.
+# Do not expose another host path or disable read_only to work around this.
+assert '${PROJECT_DIR:-./workspace}:/workspace:rw' in agent
+assert '${PROJECT_DIR:-./workspace}:/root/Documents:rw' in agent
+assert "documents_ready || exit 1" in remote
+assert "mkdir -p /root/Documents && test -w /root/Documents" in remote
 assert "read_only: true" in agent
 # Android Remote projectless tasks create ~/Documents/Codex. Ensure that path
 # resolves into the *existing* writable PROJECT_DIR bind rather than
