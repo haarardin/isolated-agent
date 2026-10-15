@@ -44,6 +44,17 @@ for value, success in [("YES", True), ("NO", False)]:
         capture_output=True, text=True, check=False,
     )
     assert (result.returncode == 0) == success, (value, result.stderr)
+# Regression: curl honours NO_PROXY even when an explicit -x proxy is given.
+# Testing Squid against 127.0.0.1 must *force* use of Squid, not loopback.
+checks=Path("scripts/network-check.sh").read_text()
+proxied=[line for line in checks.splitlines()
+         if 'podman exec' in line and 'curl ' in line and '-x http://squid:3128' in line]
+assert len(proxied)==4, f"Expected offline/public/deny/CONNECT proxy probes: {proxied!r}"
+for command in proxied:
+    assert "curl " in command and "--noproxy '' -x http://squid:3128" in command, command
+direct=[line for line in checks.splitlines()
+        if 'podman exec' in line and 'curl ' in line and "--noproxy '*'" in line]
+assert len(direct)==2, f"Direct routing probes must bypass the proxy: {direct!r}"
 assert "CODEX_APPROVAL_POLICY ?= never" in mk
 assert "CODEX_SANDBOX_MODE ?= danger-full-access" in mk
 print("Security and Remote Control static policy: OK")
