@@ -32,6 +32,18 @@ for cmd in ("codex remote-control start","codex remote-control pair","codex remo
 assert '>/dev/null 2>&1' in remote, "CLI lifecycle output must not leak to CI logs"
 assert remote.count("secure_network || exit 1") >= 3, "start/pair/doctor must reject unrestricted egress"
 assert "podman network inspect --format" in remote
+# The Makefile recipe uses /bin/sh (dash on Debian), NOT Bash.
+# Execute only the confirmation guard, never the destructive migration body.
+import subprocess
+migration = mk.split("migrate-network:\n", 1)[1].split("\n\n", 1)[0]
+guard = next(line.strip().removeprefix("@") for line in migration.splitlines() if "$(CONFIRM)" in line)
+assert guard.startswith('test "$(CONFIRM)" = "YES"'), guard
+for value, success in [("YES", True), ("NO", False)]:
+    result = subprocess.run(
+        ["/bin/sh", "-c", guard.replace("$(CONFIRM)", value)],
+        capture_output=True, text=True, check=False,
+    )
+    assert (result.returncode == 0) == success, (value, result.stderr)
 assert "CODEX_APPROVAL_POLICY ?= never" in mk
 assert "CODEX_SANDBOX_MODE ?= danger-full-access" in mk
 print("Security and Remote Control static policy: OK")
