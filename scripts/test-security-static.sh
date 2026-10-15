@@ -18,7 +18,9 @@ assert '"--subnet"' in netcode
 assert "verify_existing" in netcode
 assert "AGENT_SUBNET ?= auto" in mk
 assert "bash scripts/migrate-network.sh" in mk
-assert "enable_ipv6: false" in agent
+assert "ipv6_enabled" in netcode and "IPv6Enabled" in netcode
+assert "internal: true" not in agent  # validated in actual Podman inspect
+assert "ipam:" not in agent  # managed per-project by network-ensure
 assert agent.count("      - isolated-dev")==1
 assert "codex-state:/root/.codex" in agent
 assert "agent-cache:/root/.cache" in agent
