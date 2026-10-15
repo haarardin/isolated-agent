@@ -82,7 +82,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        ipaddress.ip_network(args.subnet, strict=True)
+        wanted = ipaddress.ip_network(args.subnet, strict=True)
+        if wanted.version != 4:
+            raise ValueError("AGENT_SUBNET must be IPv4 (isolated network has enable_ipv6: false)")
         existing = inspect_networks()
         expected = args.project + "_isolated-dev"
         conflicts = find_collisions(existing, args.subnet, expected)
