@@ -15,6 +15,14 @@ you do not trust; keep only a disposable/appropriate source tree
 in PROJECT_DIR. Remote access to the same account is a powerful
 capability despite rootless Podman, and can delete workspace files.
 
+New Android Remote threads without an explicitly selected project can
+use `/root/Documents/Codex`. The image maps `/root/Documents` to
+`/workspace` with a fixed symlink (not a second host bind mount).
+These generated folders are therefore accessible inside the same
+approved host `PROJECT_DIR`. Because remote users already have code
+execution authority within the writable workspace, use a disposable
+directory for untrusted experiments. The root remains read-only.
+
 The stored `/root/.codex` named volume contains sensitive auth tokens,
 session history, daemon settings and pairing/enrollment state. It
 survives normal `down`/recreation. Never run `make reset-state`
