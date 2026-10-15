@@ -191,6 +191,17 @@ On existing deployments, run `make build-project`, then
 rebuild `make build-serena` and restart with `make up-serena`).
 See [Android workspace details](docs/remote-control.md#android-projectless-workspaces-and-read-only-root).
 
+## Remote Control Documents compatibility
+
+Android Remote Control may initialize `/root/Documents` before starting
+a turn. To retain `read_only: true` without breaking the remote agent,
+Compose mounts **the existing `PROJECT_DIR`** at both `/workspace`
+and `/root/Documents`. Both paths reference the same writable project;
+no new host directory or service port is exposed. After pulling this
+change, run `make recreate-agent` (`make up-serena` for the optional
+Serena image), followed by `make remote-start`. No image rebuild or
+volume deletion is required. See [Remote Control guide](docs/remote-control.md).
+
 ## Headless Codex Remote Control (Android experiment)
 
 The official Codex CLI can run an experimental managed app-server
