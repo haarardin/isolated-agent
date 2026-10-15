@@ -194,13 +194,22 @@ See [Android workspace details](docs/remote-control.md#android-projectless-works
 ## Remote Control Documents compatibility
 
 Android Remote Control may initialize `/root/Documents` before starting
-a turn. To retain `read_only: true` without breaking the remote agent,
-Compose mounts **the existing `PROJECT_DIR`** at both `/workspace`
-and `/root/Documents`. Both paths reference the same writable project;
-no new host directory or service port is exposed. After pulling this
-change, run `make recreate-agent` (`make up-serena` for the optional
-Serena image), followed by `make remote-start`. No image rebuild or
-volume deletion is required. See [Remote Control guide](docs/remote-control.md).
+a turn. To retain `read_only: true`, the derived project image creates
+a **symbolic link `/root/Documents → /workspace`**. The only host bind
+remains `PROJECT_DIR:/workspace`; no other host directory is exposed.
+Because the symlink is baked into the image, **rebuild it first**:
+
+```bash
+git pull --ff-only
+make build-project
+make recreate-agent
+make remote-start
+make remote-doctor
+```
+
+For the Serena image, run `make build-serena && make up-serena` instead
+of `make recreate-agent`. No named volume deletion or network
+migration is required. See [Remote Control guide](docs/remote-control.md).
 
 ## Headless Codex Remote Control (Android experiment)
 
