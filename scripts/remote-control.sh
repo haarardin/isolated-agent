@@ -18,8 +18,25 @@ running() {
   podman exec "$id" codex app-server daemon version 2>/dev/null |
     python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("status")=="running" else 1)'
 }
+secure_network() {
+  local agent_net all squid_id
+  all="$(podman inspect "$id" --format '{{json .NetworkSettings.Networks}}')"
+  agent_net="$(python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==1,"Codex agent must have one network"; print(next(iter(n)))' "$all")" || return 1
+  if [[ "$(podman network inspect --format '{{.Internal}}' "$agent_net")" != true ]]; then
+    echo "ERROR: agent network is NOT internal. Migrate old network with CONFIRM=YES make migrate-network." >&2
+    return 1
+  fi
+  squid_id="$(bash scripts/service-id.sh squid || true)"
+  if [[ -z "$squid_id" || "$(podman inspect "$squid_id" --format '{{.State.Running}}')" != true ]]; then
+    echo "ERROR: filtered Squid is not running; Remote Control requires make up (not offline)." >&2
+    return 1
+  fi
+  all="$(podman inspect "$squid_id" --format '{{json .NetworkSettings.Networks}}')"
+  python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==2,"Squid must use isolated and outbound networks"' "$all"
+}
 case "$mode" in
  start)
+   secure_network || exit 1
    if ! podman exec "$id" codex remote-control start --json >/dev/null 2>&1; then
      event start-failed
      echo "Remote start failed. Verify Codex login, version, managed install and proxy." >&2; exit 1
@@ -32,6 +49,7 @@ case "$mode" in
    echo "Codex app-server daemon running. No remote TCP port is published."
    ;;
  pair)
+   secure_network || exit 1
    running || { echo "Start Remote Control first: make remote-start" >&2; exit 1; }
    echo "Pairing code appears only here. Do NOT paste it in logs or CI."
    podman exec "$id" codex remote-control pair
@@ -52,6 +70,7 @@ case "$mode" in
    ;;
  doctor)
    echo "Compose project: $COMPOSE_PROJECT_NAME"
+   secure_network || exit 1
    podman exec "$id" sh -c 'codex --version; codex remote-control --help >/dev/null && echo "Remote Control CLI: available"; test -w "$CODEX_HOME" && echo "CODEX_HOME: writable"'
    if running; then echo "Managed daemon: running"; else echo "Managed daemon: stopped"; fi
    nets="$(podman inspect "$id" --format '{{json .NetworkSettings.Networks}}')"
