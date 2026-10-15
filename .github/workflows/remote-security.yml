@@ -95,7 +95,16 @@ jobs:
       - name: Verify projectless Remote workspace on read-only root
         run: |
           scratch="$(mktemp -d)"
-          trap 'rm -rf "$scratch"' EXIT
+          cleanup() {
+            # Container root can create root-owned files inside the test bind.
+            # Clean them with the same image, then remove the host directory.
+            docker run --rm --network none \
+              -v "$scratch:/workspace:rw" \
+              --entrypoint /bin/bash localhost/isolated-agent-project:ci \
+              -ec 'rm -rf /workspace/Codex' >/dev/null 2>&1 || true
+            rm -rf "$scratch"
+          }
+          trap cleanup EXIT
           docker run --rm --read-only --network none \
             -v "$scratch:/workspace:rw" \
             --entrypoint /bin/bash localhost/isolated-agent-project:ci -ec '
