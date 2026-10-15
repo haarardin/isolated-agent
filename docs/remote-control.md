@@ -41,6 +41,7 @@ make build-project
 # Optional when using Serena:
 make build-serena
 make up
+make recreate-agent   # force deployment of the rebuilt image; preserves volumes
 make login             # one-time ChatGPT device authorization
 make doctor
 make network-check
