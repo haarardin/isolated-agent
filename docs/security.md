@@ -4,7 +4,12 @@ Rootless Podman remains the **primary** sandbox. The agent is container
 root mapped to an unprivileged host user. Runtime image root filesystem
 is read-only, Linux capabilities are all dropped, and `no-new-privileges`
 is enabled. The agent only mounts PROJECT_DIR, codex-state and agent-cache;
-Serena adds its own named volume. No host root, socket, SSH keys,
+Serena adds its own named volume. For Codex Remote Control compatibility,
+PROJECT_DIR is also mapped to /root/Documents as a **second alias of
+the same host directory** already mounted at /workspace. It does not
+grant access to any new host paths and does not make the container root
+writable. A remote task targeting ~/Documents therefore writes to
+the same approved project source tree. No host root, socket, SSH keys,
 privileged mode, host network or inbound public control port is mounted.
 
 The existing Codex settings `approval_policy = "never"` and
