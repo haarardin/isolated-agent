@@ -116,6 +116,59 @@ alone does not prove the Android controller supports it.
 Do not assume ordinary ChatGPT conversations, Codex Web, TUI history
 and Remote Control sessions automatically share identical state.
 
+## Android projectless workspaces and read-only root
+
+Android Remote tasks started without a selected project may create a new
+working directory under `$HOME/Documents/Codex`. With the agent's
+intentionally read-only root filesystem, writing `/root/Documents` would
+otherwise fail before Codex can process the request.
+
+The **project agent image** supplies a symlink:
+
+```text
+/root/Documents -> /workspace
+/root/Documents/Codex/... -> PROJECT_DIR/Codex/... on the Debian host
+```
+
+No additional volume or host filesystem is exposed. This preserves the
+existing `read_only: true` setting, `cap_drop: ALL`, and the single
+`PROJECT_DIR:/workspace` writable bind mount. The files survive normal
+agent container recreation because `PROJECT_DIR` is on the host.
+
+To apply the change **after the agent is already running**:
+
+```bash
+git pull --ff-only
+make build-project        # changed Containerfile: make up alone is not enough
+# Serena users also: make build-serena
+make recreate-agent       # only the agent is recreated, volumes are retained
+make remote-start         # managed daemon is a process; restart after recreation
+make remote-status
+make shell
+# In the agent container:
+readlink /root/Documents   # expected: /workspace
+mkdir -p /root/Documents/Codex/remote-smoke
+test -d /workspace/Codex/remote-smoke
+```
+
+For Serena deployments, use `make up-serena` instead of
+`make recreate-agent`, so the recreated agent still uses the Serena
+image. The symlink exists in that derived image **only after rebuilding
+its parent project image and Serena image**.
+
+Start a **new** Android Remote thread without a project and ask it to
+describe the work folder. If the same old thread retains an invalid path
+or an app-server state error, create a fresh thread. Check the
+`PROJECT_DIR/Codex` directory on the Debian host.
+
+**Security note:** a projectless Android request now receives an
+ordinary writable subdirectory under the same project source tree
+already exposed as `/workspace`. Remote Control with
+`approval_policy=never` and `sandbox_mode=danger-full-access` can
+modify files there. Use a dedicated disposable `PROJECT_DIR` for
+experiments. This alias does not make the container root filesystem
+writable.
+
 ## Troubleshooting
 
 - `remote-control` subcommand missing: check `codex --version` and
@@ -130,6 +183,7 @@ and Remote Control sessions automatically share identical state.
 - Pair says enrollment incomplete: check `make remote-doctor`,
   proxy DNS and OpenAI endpoint reachability; network restrictions
   must not be disabled merely to satisfy enrollment.
+- Remote task fails with `mkdir: cannot create directory '/root/Documents': Read-only file system`: rebuild the updated **project** image, recreate the agent, restart Remote Control and verify `readlink /root/Documents` reports `/workspace`. Avoid disabling `read_only`.
 - Offline mode does **not** support Remote Control or online login.
 - Debugging the official app-server sometimes requires local raw logs.
   Treat them as sensitive and do not paste them into public issues.
