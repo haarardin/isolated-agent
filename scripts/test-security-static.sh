@@ -14,6 +14,14 @@ assert agent.count("      - isolated-dev")==1
 assert "codex-state:/root/.codex" in agent
 assert "agent-cache:/root/.cache" in agent
 assert "read_only: true" in agent
+# Android Remote projectless tasks create ~/Documents/Codex. Ensure that path
+# resolves into the *existing* writable PROJECT_DIR bind rather than
+# weakening read_only or exposing more host directories.
+project_image = Path("images/project/Containerfile").read_text()
+assert "ln -s /workspace /root/Documents" in project_image
+assert "test ! -e /root/Documents" in project_image
+assert "/root/Documents:" not in agent, "Do not introduce extra host mounts"
+
 assert "cap_drop:\n      - ALL" in agent
 assert "in_pod: false" in agent
 assert "      - outbound" in web and "      - isolated-dev" in web
