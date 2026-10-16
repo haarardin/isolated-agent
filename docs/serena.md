@@ -100,7 +100,7 @@ so bind-mounted smoke projects without `.git` work too.
 
 Serena uses writable state:
 
-- `/root/.serena`: Serena global settings/logs (named volume)
+- `/root/.serena`: Serena global settings/logs (named volume, optionally selected with `SERENA_STATE_VOLUME`; otherwise automatically isolated by PROJECT_DIR)
 - `/root/.cache`: Python/LSP and Go build caches (existing named volume)
 - `/workspace/.serena/`: project configuration and optional Serena memories.
   This directory is in your **source bind mount**, so it persists on the host.
@@ -149,7 +149,7 @@ standard project image is restored without attempting to recreate
 already-running PostgreSQL/Redis containers. Do **not** use
 `make remove-agent && make up-example` on a running example stack:
 that can trigger the same duplicate container-name error.
-The Serena state volume remains until the explicit destructive
+The Serena global-state volume is independently named per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena state volume remains until the explicit destructive
 `make reset-state` cleanup.
 
 ## Limitations and security
