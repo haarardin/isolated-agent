@@ -40,6 +40,6 @@ if printf '%s\n' "$serena_plan" | grep -Fxq 'bash scripts/compose.sh -f compose.
 fi
 
 # Baseline rollback must also target only the agent.
-make -n recreate-agent | grep -Fq 'compose.example-services.yaml up -d agent'
+make -n recreate-agent | grep -Fq 'compose.example-services.yaml -f .generated/compose.tools.yaml up -d agent'
 
 echo 'Serena static integration checks: OK'
