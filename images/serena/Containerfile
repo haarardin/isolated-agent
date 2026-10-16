@@ -18,11 +18,8 @@ RUN apt-get update \
          "serena-agent==${SERENA_VERSION}" \
     && /opt/serena/venv/bin/serena --help >/dev/null
 
-# Install Go LSP into the image, NOT into /root/.cache or /root/go:
-# those paths are overmounted by persistent runtime volumes.
-RUN GOBIN=/usr/local/bin go install "golang.org/x/tools/gopls@${GOPLS_VERSION}" \
-    && /usr/local/bin/gopls version
-
+# Language servers are installed in the generic Dependencies stage, not
+# by Serena. This legacy Serena image is retained for old Make targets.
 # Codex reads this image policy in addition to its persistent CODEX_HOME.
 # stdio only: no new listener, published port, or Podman socket.
 # Explicit /workspace works even for a bind-mounted non-Git test project.
