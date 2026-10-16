@@ -10,3 +10,6 @@ workspace/*
 
 # Proxy configuration, lifecycle events; never publish local runtime state.
 .state/
+
+# Codex auth, sessions, native memory SQLite and Serena runtime state.
+/volumes/
