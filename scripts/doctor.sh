@@ -15,12 +15,6 @@ set -eu
 
 printf "PATH:            %s\n" "$PATH"
 
-command -v go >/dev/null 2>&1 || {
-  printf "ERROR: go is not available in container PATH\n" >&2
-  printf "Expected Go binary at /usr/local/go/bin/go\n" >&2
-  exit 1
-}
-
 command -v codex >/dev/null 2>&1 || {
   printf "ERROR: codex is not available in container PATH\n" >&2
   exit 1
