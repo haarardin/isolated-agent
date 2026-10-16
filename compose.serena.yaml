@@ -7,8 +7,11 @@ services:
       SERENA_PROJECT_KEY: ${CODEX_PROJECT_KEY:-}
       SERENA_BIND_EXISTING_STATE: ${SERENA_BIND_EXISTING_STATE:-false}
     volumes:
-      - serena-state:/root/.serena
+      - type: ${SERENA_STATE_MOUNT_TYPE:-bind}
+        source: ${SERENA_STATE_MOUNT_SOURCE:-./volumes/serena}
+        target: /root/.serena
+        read_only: false
 
 volumes:
   serena-state:
-    name: ${SERENA_STATE_VOLUME:-isolated-agent-serena-unconfigured}
+    name: ${SERENA_NAMED_VOLUME:-isolated-agent-serena-unconfigured}
