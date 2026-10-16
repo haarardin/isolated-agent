@@ -71,6 +71,9 @@ def check_step(step, where):
     if "id" in step and (not isinstance(step["id"], str) or not IDENT.fullmatch(step["id"])):
         err(where + ": invalid id")
     strings(step.get("verify", []), where + ".verify")
+    allowed.add("files")
+    for resource in strings(step.get("files", []), where + ".files"):
+        file_path(resource, "files")
     if typ == "apt":
         allowed.add("packages")
         for pkg in strings(step.get("packages"), where + ".packages"):
@@ -196,6 +199,10 @@ def steps(lines, items):
     for step in items:
         typ = step["type"]
         lines.append("# " + step.get("id", typ))
+        for resource in step.get("files", []):
+            source = "dependencies/files/" + resource
+            target_resource = "/opt/isolated-install/files/" + resource
+            lines.append("COPY " + json.dumps([source, target_resource]))
         if typ in ("deb", "script", "archive"):
             folder = "scripts" if typ == "script" else "packages"
             path = step["file"]
@@ -272,6 +279,8 @@ def generate(data, folder=OUT):
     for step in data.get("install", []) + [s for t in enabled(data) for s in t.get("install", [])]:
         if step["type"] in ("script", "deb", "archive"):
             digest.update(file_path(step["file"], "scripts" if step["type"] == "script" else "packages").read_bytes())
+        for resource in step.get("files", []):
+            digest.update(file_path(resource, "files").read_bytes())
     summary = {"fingerprint": digest.hexdigest()[:16], "sidecars": sidecars}
     (folder / "manifest.json").write_text(json.dumps(summary) + "\n")
     return summary
