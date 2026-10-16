@@ -15,7 +15,7 @@ dependencies/
   dependencies.toml    # Only file loaded by default
   scripts/             # Local shell installers, opt-in by TOML reference
   packages/            # Local .deb, .tar.gz, .tar.xz, .tar, .tgz, .zip
-  files/               # Reserved for supporting files (not auto-copied)
+  files/               # Explicit supporting files for installer steps
   examples/            # Opt-in example configurations, not loaded
 
 Generated files are under ignored .generated/:
@@ -38,7 +38,11 @@ more [[install]] entries for strictly ordered operations:
 - command: run = "some trusted shell command"
 
 Optional verify = ["tool --version"] causes the image build to stop on
-nonzero exit. Changes to TOML/files change the Podman build cache layers.
+nonzero exit. Any step may set files = ["settings.json"] to copy that
+explicit dependency from dependencies/files/ into the build image at
+/opt/isolated-install/files/settings.json before running. The generator
+rejects file traversal, and local resource contents contribute to the
+configuration fingerprint. Changes to TOML/files change the Podman build cache layers.
 Only referenced files are copied. Unknown types/paths fail validation.
 Archive members are inspected to reject traversal, symlinks and special
 files; always use trusted distribution packages and verify their checksums.
