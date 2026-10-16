@@ -15,7 +15,7 @@ Host Linux
 │      │
 │      └──── bind mount ───────────────┐
 │                                      │
-└── isolated compose network           │
+└── isolated Compose network           │
        │                               │
        ├── agent                       │
        │    ├── Codex CLI              │
@@ -32,6 +32,9 @@ Host Linux
        ├── postgres      optional
        ├── redis         optional
        └── other project services
+
+Filtered Web mode: agent -> Squid on internal network -> separate outbound network -> public Internet.
+Offline mode: internal network only; Squid absent.
 ```
 
 The agent does **not** receive the host Podman/Docker socket. Service orchestration stays outside the agent sandbox.
@@ -118,6 +121,10 @@ We still keep the outer controls:
 
 ## Quick start
 
+For **Android Remote Control**, follow the complete
+[Remote Control launch guide](docs/REMOTE-START.md) rather than
+only the generic CLI instructions below.
+
 Copy the environment file:
 
 ```bash
@@ -140,11 +147,15 @@ built again.
 Use `make build` and `make build-serena` when you intentionally want to
 rebuild image layers.
 
-Start the agent:
+Start the agent with **filtered web egress** (internal network + Squid):
 
 ```bash
 make up
 ```
+
+Use `make offline` for a network-isolated agent **without Internet**.
+Existing contexts with the old `internal: false` Podman network must migrate
+explicitly; see [network isolation](docs/network-isolation.md).
 
 Authenticate Codex once:
 
@@ -169,6 +180,76 @@ Stop the environment:
 ```bash
 make down
 ```
+
+## Independent network name and shared networks
+
+Two independent Compose projects can intentionally join **one existing
+internal Podman network** without sharing their Codex sessions or named volumes:
+
+```dotenv
+# Project A
+COMPOSE_PROJECT_NAME=codex-api
+AGENT_NETWORK_NAME=ai-development
+AGENT_SUBNET=auto
+
+# Project B (separate checkout and .env)
+COMPOSE_PROJECT_NAME=codex-sip
+AGENT_NETWORK_NAME=ai-development
+AGENT_SUBNET=auto
+```
+
+`COMPOSE_PROJECT_NAME` scopes containers, sessions, cache and DB
+volumes. **`AGENT_NETWORK_NAME` selects the network independently.**
+If omitted, the previous default remains:
+`<COMPOSE_PROJECT_NAME>_isolated-dev`.
+
+`make network-info` checks the configured network, and
+`make network-ensure` creates it if missing or validates and reuses
+a same-named internal network. `make up` invokes that automatically.
+Compose `down` does not delete the external internal network.
+
+Each project's Squid receives a unique DNS alias such as
+`codex-api-egress` or `codex-sip-egress`. A **shared network grants
+reachability between its member containers** and is suitable only
+for mutually trusted projects.
+
+See [network identity and sharing](docs/network-isolation.md).
+
+## Start Codex Remote Control from Android
+
+For a complete step-by-step setup, **start here**:
+**[REMOTE-START.md — first install, existing agent upgrade, Android pairing,
+validation and troubleshooting](docs/REMOTE-START.md)**.
+
+The quick operational sequence, **after the correct images are built and
+the agent is initialized**, is:
+
+```bash
+make up                # agent + Squid; online filtered-egress mode
+make login             # only if not already signed in to Codex
+make remote-start      # detached managed Codex daemon
+make remote-status
+make remote-doctor
+make remote-pair       # only when pairing a new Android device
+```
+
+**Do not skip the image build and recreation steps in the linked guide**
+when updating an older container. Remote Android tasks may initialize
+`/root/Documents`, which the updated **project image** maps to
+`/workspace` using an image-baked symlink. Applying this requires
+`make build-project && make recreate-agent` (or rebuilding and starting
+the Serena image). No host port needs to be opened; rootless Podman
+isolation and the existing named volumes are retained.
+
+The Android host/pairing flow has been observed on an actual device,
+but successful execution of a whole remote turn must still be verified
+on the Debian host. The official manual-code flow remains experimental
+and may differ across Android versions.
+
+Detailed background:
+[Remote Control implementation](docs/remote-control.md) ·
+[network isolation](docs/network-isolation.md) ·
+[security model](docs/security.md).
 
 ## Recommended multi-project workflow
 
@@ -803,3 +884,27 @@ services or persistent volumes, use `make recreate-agent`.
 
 See [docs/serena.md](docs/serena.md) for architecture, permissions, project
 `.serena/` artifacts, benchmark design, and rollback steps.
+
+
+## Network security change (migration required)
+
+The former `isolated-dev` network was `internal: false`.
+It is now `internal: true` with a configurable
+`AGENT_SUBNET` (default `10.89.71.0/24`). An existing unrestricted
+network **must not** be silently reused. Run `make preflight` to
+identify it, then explicitly run
+`CONFIRM=YES make migrate-network` (after saving work).
+That stops project containers using Compose `down` **without `-v`**,
+preserving Codex, PostgreSQL, cache and Serena named volumes.
+
+`make up` starts Squid separately dual-homed between internal and
+outbound networks; Codex itself has no direct Internet route.
+`make offline` removes Squid and leaves native intra-project DB access
+available. Set additional denied CIDRs in `BLOCK_CIDRS` for host
+public IPs, VPN and other sensitive networks.
+
+`make remote-start` requires filtered Internet and the managed Codex
+CLI. It must be rerun after agent container recreation; the daemon
+is detached **inside** that container, not a host daemon.
+See [docs/network-isolation.md](docs/network-isolation.md) for
+remaining limitations and the Debian verification steps.

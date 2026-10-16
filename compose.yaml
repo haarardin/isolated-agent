@@ -1,3 +1,4 @@
+# The agent only joins the internal network. Filtered egress uses compose.web.yaml.
 services:
   agent:
     image: ${PROJECT_IMAGE:-localhost/isolated-agent-project:dev}
@@ -6,41 +7,43 @@ services:
     tty: true
     init: true
     command: ["sleep", "infinity"]
-
     environment:
       HOME: /root
       CODEX_HOME: /root/.codex
       GOCACHE: /root/.cache/go-build
       GOMODCACHE: /root/.cache/go-mod
       GOPATH: /root/.cache/go
-
+      HTTP_PROXY: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      HTTPS_PROXY: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      http_proxy: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      https_proxy: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      NO_PROXY: localhost,127.0.0.1,::1,postgres,redis
+      no_proxy: localhost,127.0.0.1,::1,postgres,redis
     volumes:
       - ${PROJECT_DIR:-./workspace}:/workspace:rw
+      # ~/Documents in the immutable image is a symlink to /workspace.
+      # Do not add a second mount: project layer provides the alias.
       - codex-state:/root/.codex
       - agent-cache:/root/.cache
-
     read_only: true
-
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m
       - /run:rw,nosuid,nodev,size=64m
-
     cap_drop:
       - ALL
-
     security_opt:
       - no-new-privileges:true
-
     networks:
       - isolated-dev
-
 volumes:
   codex-state:
   agent-cache:
-
+# The host-side preflight creates the configured internal network, or validates
+# and reuses the existing one. External ownership prevents compose down from
+# deleting it while other services may still be attached.
 networks:
   isolated-dev:
-    internal: false
-
+    name: ${AGENT_NETWORK_NAME:-isolated-agent-demo_isolated-dev}
+    external: true
 x-podman:
   in_pod: false

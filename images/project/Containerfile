@@ -28,6 +28,16 @@ RUN if [ -n "${PROJECT_APT_PACKAGES}" ]; then \
       && rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Android Codex Remote may allocate a projectless thread under
+# $HOME/Documents/Codex (that is, /root/Documents/Codex). The runtime
+# root filesystem is read_only, while /workspace is a permitted writable
+# bind mount. Use a symlink baked into the image: keep the security policy,
+# avoid introducing another host mount or a disposable tmpfs, and persist
+# generated remote folders under PROJECT_DIR on the host.
+# Fail closed if a future base image already owns this path.
+RUN test ! -e /root/Documents && test ! -L /root/Documents \
+    && ln -s /workspace /root/Documents
+
 COPY ${CODEX_AGENTS_FILE} /opt/isolated-agent/AGENTS.md
 COPY images/project/entrypoint.sh /usr/local/bin/isolated-agent-entrypoint
 

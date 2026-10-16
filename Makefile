@@ -3,11 +3,21 @@ include .env
 export
 endif
 
+COMPOSE_PROJECT_NAME ?= isolated-agent-demo
+AGENT_SUBNET ?= auto
+# Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
+AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev
+BLOCK_CIDRS ?=
+SQUID_IMAGE ?= docker.io/ubuntu/squid:6.6-24.04_edge
+export COMPOSE_PROJECT_NAME AGENT_NETWORK_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
 PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
-COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml
-COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.serena.yaml
-COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f compose.serena.yaml
+COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml
+COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml
+COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.serena.yaml
+COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f compose.serena.yaml
+COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml
+COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.serena.yaml
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
@@ -34,7 +44,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= false
 
-.PHONY: help preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -50,7 +60,17 @@ help:
 	  'make codex-serena   Open Codex with Serena available' \
 	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
 	  'make test-serena-static Check optional integration without Podman' \
-	  'make up             Start the isolated agent' \
+	  'make up             Start agent with filtered Squid egress' \
+	  'make offline        Start agent without Internet' \
+	  'make remote-start   Start headless Codex Remote Control' \
+	  'make remote-pair    Show temporary Android pairing code' \
+	  'make remote-status  Check managed app-server daemon' \
+	  'make remote-stop    Stop Remote Control' \
+	  'make remote-doctor  Safe daemon/network diagnostics' \
+	  'make network-check Test rootless network isolation' \
+	  'make network-info  Inspect assigned project network' \
+	  'make network-ensure Create or reuse the project's internal network' \
+	  'make migrate-network CONFIRM=YES   Migrate old network' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
 	  'make ps-example     Show agent + example services' \
 	  'make stop-agent     Stop only the agent container' \
@@ -71,6 +91,16 @@ help:
 
 preflight:
 	@bash scripts/preflight.sh
+	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
+
+network-info:
+	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
+
+network-ensure: preflight
+	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
+
+prepare-web: network-ensure
+	@bash scripts/prepare-web.sh
 
 doctor:
 	@bash scripts/doctor.sh
@@ -176,14 +206,16 @@ build-serena:
 # Swapping image requires removing the previous agent container;
 # persistent codex-state and agent-cache volumes are deliberately untouched.
 # Do not invoke this while a Codex session is actively running.
-up-serena:
+up-serena: prepare-web
+	$(COMPOSE_WEB) up -d squid
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA) up -d agent
 
 # Recreate only the agent: podman-compose up -d (without a service)
 # attempts to re-create existing PostgreSQL/Redis containers on some versions.
 # Bootstrap the optional services once with make up-example.
-up-serena-example:
+up-serena-example: prepare-web
+	$(COMPOSE_WEB) up -d squid
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA_EXAMPLE) up -d agent
 
@@ -208,17 +240,35 @@ down-serena:
 down-serena-example:
 	$(COMPOSE_SERENA_EXAMPLE) down
 
-up:
-	$(COMPOSE) up -d agent
+up: prepare-web
+	$(COMPOSE_WEB) up -d
 
-up-example:
+up-example: prepare-web
 	$(COMPOSE_EXAMPLE) up -d
 
+offline: network-ensure
+	@bash scripts/remove-service.sh squid
+	$(COMPOSE) up -d agent
+
+offline-example: network-ensure
+	@bash scripts/remove-service.sh squid
+	$(COMPOSE_OFFLINE_EXAMPLE) up -d
+
+offline-serena: network-ensure
+	@bash scripts/remove-service.sh squid
+	@bash scripts/remove-service.sh agent
+	$(COMPOSE_OFFLINE_SERENA) up -d agent
+
 down:
-	$(COMPOSE) down
+	$(COMPOSE_WEB) down
 
 down-example:
 	$(COMPOSE_EXAMPLE) down
+
+migrate-network:
+	@test "$(CONFIRM)" = "YES" || { echo "Set CONFIRM=YES; stop active Codex sessions first"; exit 1; }
+	@bash scripts/migrate-network.sh
+	@$(MAKE) up
 
 stop-agent:
 	$(COMPOSE_EXAMPLE) stop agent
@@ -226,7 +276,7 @@ stop-agent:
 remove-agent:
 	@bash scripts/remove-service.sh agent
 
-recreate-agent:
+recreate-agent: prepare-web
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_EXAMPLE) up -d agent
 
@@ -235,6 +285,31 @@ clean:
 
 reset-example-db:
 	@bash scripts/reset-example-db.sh
+
+network-check:
+	@bash scripts/network-check.sh
+
+remote-start:
+	@bash scripts/remote-control.sh start
+
+remote-pair:
+	@bash scripts/remote-control.sh pair
+
+remote-status:
+	@bash scripts/remote-control.sh status
+
+remote-stop:
+	@bash scripts/remote-control.sh stop
+
+remote-logs:
+	@bash scripts/remote-control.sh logs
+
+remote-doctor:
+	@bash scripts/remote-control.sh doctor
+
+network-static:
+	@python3 -m unittest discover -s tests -p 'test_*.py' -v
+	@bash scripts/test-security-static.sh
 
 login:
 	$(COMPOSE) exec agent codex login --device-auth
@@ -261,7 +336,7 @@ logs-example:
 	$(COMPOSE_EXAMPLE) logs -f
 
 ps:
-	$(COMPOSE) ps
+	$(COMPOSE_WEB) ps
 
 ps-example:
 	$(COMPOSE_EXAMPLE) ps

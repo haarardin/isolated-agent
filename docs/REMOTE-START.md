@@ -1,0 +1,279 @@
+# Start Codex Remote Control on Debian (rootless Podman)
+
+This is the **start-to-finish operator runbook** for using the existing
+`isolated-agent` as a headless, remotely accessible Codex worker from
+ChatGPT/Codex on Android. All commands below run **on the Debian host,
+as your normal user, in the `isolated-agent` repository directory**.
+Do not use `sudo`. No Webtop GUI, public inbound port or Podman socket is
+needed.
+
+**What Remote Control does:** the Android app communicates with the
+official managed Codex app-server over the remote-control service. The
+container needs **filtered outbound HTTPS** through Squid, so use
+`make up`, **not** `make offline`. Manual-code pairing is an
+experimental CLI feature; the Android UI varies by app version. On the
+tested Android setup, the host was visible and a remote turn reached
+the agent, but completing a turn still needs the writable-workspace
+verification below.
+
+## A. First installation (new Compose project)
+
+1. **Get the feature branch and create a local config.** If you already
+   have a clone, enter it; otherwise clone the repository first.
+
+   ```bash
+   git clone https://github.com/haarardin/isolated-agent.git
+   cd isolated-agent
+   git fetch origin
+   git switch --track origin/feature/remote-control-network-isolation
+   cp -n .env.example .env
+   ```
+
+   If the tracking branch already exists locally, use
+   `git switch feature/remote-control-network-isolation` and
+   `git pull --ff-only` instead.
+
+2. **Choose what the remote agent may edit.**
+
+   ```bash
+   mkdir -p "$HOME/projects/codex-remote-workspace"
+   nano .env
+   ```
+
+   In `.env`, set (replace `/home/USER` with the actual absolute path):
+
+   ```dotenv
+   COMPOSE_PROJECT_NAME=isolated-agent-demo
+   PROJECT_DIR=/home/USER/projects/codex-remote-workspace
+   AGENT_SUBNET=auto
+   # Optional, only when sharing a trusted network with another project:
+   # AGENT_NETWORK_NAME=team-development
+   BLOCK_CIDRS=
+   ```
+
+   `PROJECT_DIR` **must exist**. It is mounted read-write as
+   `/workspace`. In the current project image, `/root/Documents`
+   is an image-baked symlink to `/workspace`; projectless mobile tasks
+   may create files under `PROJECT_DIR/Codex`. Choose a **disposable**
+   directory or only the repository you intend to grant Codex access to.
+   Keep the other `.env` settings from `.env.example`.
+
+   The default `auto` mode allocates a free subnet per new network and
+   safely reuses an existing matching named network. For multiple
+   independent clones, choose distinct `COMPOSE_PROJECT_NAME`.
+   Set the same `AGENT_NETWORK_NAME` only for trusted projects that
+   must share a network;
+   this also prevents collisions in Compose-named volumes. To select
+   a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
+   host/VPN/private IP ranges through Squid.
+
+3. **Check dependencies, scripts and network topology.**
+
+   ```bash
+   make network-static
+   make preflight           # plan: no changes to Podman networks
+   make network-info        # show planned or reusable configured network
+   ```
+
+   Requirements: rootless Podman, explicit `podman-compose`, Python 3,
+   GNU Make, Git and access to the official Codex CLI installer for
+   the image build. The preflight must succeed before the next step.
+   If it rejects an **existing same-project network because it is
+   `internal: false`**, follow section **C**, below. Do **not**
+   blindly migrate on every install or ignore a collision with
+   another project's network.
+
+4. **Build the agent image layers, start the online profile and check
+   the network.**
+
+   ```bash
+   make build             # base + official Codex CLI + project image
+   make up                # agent plus dual-homed filtered Squid
+   make ps
+   make doctor
+   make network-check
+   ```
+
+   `make build` is the safe first-install option: `make ensure-images`
+   only checks if existing tags are present and will not update an old
+   image after a Dockerfile change. `make up` creates the agent on
+   an `internal: true` Podman network; only Squid connects to the
+   outbound network. No extra `make recreate-agent` is needed on a
+   **brand-new** installation just built from the updated images.
+
+5. **Sign in to Codex, start Remote Control and check readiness.**
+
+   ```bash
+   make login             # follow ChatGPT device authorization; first time
+   make remote-start      # starts detached managed Codex daemon
+   make remote-status
+   make remote-doctor
+   ```
+
+   The login uses your ChatGPT account. Do not copy authentication
+   files into the chat. Expect a running daemon and a writable
+   `/root/Documents` check, plus an OpenAI HTTPS CONNECT check
+   through Squid. `make remote-doctor` is also useful after upgrades.
+
+6. **Pair Android and send a harmless first turn.**
+
+   ```bash
+   make remote-pair
+   ```
+
+   This prints a short-lived pairing code **only in your private
+   terminal**. On Android, sign in to the **same ChatGPT account and
+   workspace**, open **Codex / Remote**, find the option to pair or add
+   the remote host and enter the code **if your app offers manual-code
+   pairing**. Names and available pairing flows vary by release.
+   Never post the code or full authentication/session logs.
+
+   Select the connected remote host, open a new thread and send:
+
+   > List the filenames in /workspace and tell me the current working directory. Do not modify files.
+
+   Then try a small write:
+
+   > Create /workspace/remote-e2e.txt containing remote-ok, read it back, and report the result.
+
+   On the Debian host:
+
+   ```bash
+   cat /home/USER/projects/codex-remote-workspace/remote-e2e.txt
+   ```
+
+   Expected: `remote-ok`. The host/source path is the same
+   `PROJECT_DIR` set in your `.env`, not a path in the agent repo.
+   A visible device/host alone does **not** prove successful turn
+   execution; verify a response **and** the host file.
+
+## B. Upgrade an existing agent (images and persistent data already present)
+
+This is the shortest safe sequence for an existing instance from an older
+PR #6 revision, especially one that fails with
+`mkdir: cannot create directory '/root/Documents': Read-only file system`.
+
+```bash
+# From the existing isolated-agent checkout; finish/save active tasks first.
+git switch feature/remote-control-network-isolation
+git pull --ff-only
+make network-static
+make preflight
+
+make build-project        # adds /root/Documents -> /workspace to the image
+make recreate-agent       # deploys image; does NOT delete named volumes
+make network-check
+make remote-start         # daemon was stopped by container recreation
+make remote-status
+make remote-doctor
+```
+
+`make recreate-agent` deliberately recreates **only agent**; Squid,
+PostgreSQL/Redis services, networks and named volumes are not reset.
+`make up` alone may leave an existing container on the old image.
+If you need an updated Codex CLI as well, first run
+`make build-codex && make build-project` before `make recreate-agent`.
+If you were not logged in previously, run `make login` after recreation.
+If Android was paired already, **test the existing connection first**;
+only re-run `make remote-pair` if pairing is lost.
+
+For **Serena-enabled** agents (only if you are actually using Serena):
+
+```bash
+make build-project
+make build-serena
+make up-serena
+make network-check
+make remote-start
+make remote-doctor
+```
+
+Do **not** use ordinary `make recreate-agent` for this scenario: it
+targets `PROJECT_IMAGE`, not the Serena-derived image. For a new Serena
+environment first build the base and Codex layers (e.g. `make build`),
+then `make build-serena && make up-serena`.
+
+## C. Existing older network: migrate **only if preflight rejects it**
+
+The previous agent network used `internal: false`. On an existing
+project, if `make preflight` reports that this **same project's**
+`isolated-dev` network is not internal:
+
+```bash
+# Finish/save active Codex tasks; back up valuable named-volume state.
+CONFIRM=YES make migrate-network
+make preflight
+make network-check
+```
+
+`migrate-network` runs Compose `down` **without `-v`**, then starts
+the filtered web profile. It stops running sessions, but should preserve
+`codex-state`, `agent-cache`, Serena and DB named volumes. If you
+were using optional services, restart the relevant profile afterward;
+restart the managed daemon with `make remote-start`. Do not use this
+command to fix an unrelated subnet collision with another project,
+and do not remove someone else's attached network.
+
+If `make preflight` reports `Project network planned` (fresh
+installation) or `Project network reused`, **skip migration**.
+
+## D. Regular use after an agent restart/recreation
+
+```bash
+make up                # filtered online environment (not offline)
+make remote-start      # the daemon is a process, not a persistent service
+make remote-status
+```
+
+If `make up` recreates the container, Codex auth and sessions remain
+in the `codex-state` named volume but the managed daemon must be started
+again. `make remote-start` does **not** auto-run on host boot. To
+stop remote management without deleting data:
+
+```bash
+make remote-stop
+make remote-logs        # safe lifecycle events, no raw auth/pairing output
+```
+
+For a completely unattended service, arrange a **host-side user
+service** to start Compose and then `make remote-start`; no
+systemd-in-container or public TCP listener is required.
+
+## E. Diagnosing failures without weakening isolation
+
+| Symptom | What to do |
+|---|---|
+| `make preflight` reports an old non-internal network | Use section C *only if it is this Compose project's network* |
+| `make network-check` returns `000` for 127.0.0.1 | Pull the updated PR script; Squid ACL tests must use `curl --noproxy '' -x "$HTTP_PROXY"` |
+| `remote-start` cannot find a container | Run `make up` and `make ps` |
+| `remote-start` refuses due to missing Squid | Run `make up`, not `make offline`; then `make network-check` |
+| Remote daemon reports stopped | Run `make remote-start`, then `make remote-status` |
+| `/root/Documents` read-only error on Android | Rebuild **project** image and `make recreate-agent` as in B; do **not** disable `read_only` |
+| CLI lacks `remote-control` | Rebuild Codex and project images, recreate agent and verify `codex --version` |
+| HTTPS/CONNECT fails in `make remote-doctor` | Verify `make network-check`, Squid ACL/DNS and egress; do not attach an outbound network directly to agent |
+| Host visible on Android but remote turn fails | Check `make remote-doctor`; then inspect the writable workdir and try a **new** remote thread |
+| Android has no manual pairing UI | CLI pairing is experimental and not promised for every Android build; check the app version/available pairing flow |
+
+Inspect the Documents alias without exposing file contents:
+
+```bash
+make shell
+readlink /root/Documents            # should print /workspace
+test -w /root/Documents && test -w /workspace && echo OK
+exit
+```
+
+Keep `read_only: true`, drop all capabilities, retain internal-only
+agent networking, and use the Squid proxy for outbound HTTPS. Do not
+attach the Podman/Docker socket or blanket-mount host `$HOME`.
+
+**Persistent data:** `codex-state:/root/.codex` holds Codex
+authentication and session data; `agent-cache:/root/.cache` holds
+build caches; `PROJECT_DIR` is the approved writable host source
+directory. `make reset-state` deletes persistent volumes; do **not**
+use it while debugging Remote Control.
+
+For implementation details and security limitations see
+[Remote Control reference](remote-control.md),
+[network isolation and migration](network-isolation.md) and
+[security](security.md).

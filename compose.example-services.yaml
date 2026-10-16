@@ -1,8 +1,8 @@
 services:
   agent:
     environment:
-      TEST_POSTGRES_DSN: postgres://agent:agent@postgres:5432/app?sslmode=disable
-      TEST_REDIS_ADDR: redis:6379
+      TEST_POSTGRES_DSN: postgres://agent:agent@${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-postgres:5432/app?sslmode=disable
+      TEST_REDIS_ADDR: ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-redis:6379
 
   postgres:
     image: docker.io/library/postgres:18-alpine
@@ -18,7 +18,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     networks:
-      - isolated-dev
+      isolated-dev:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-postgres
 
   redis:
     image: docker.io/library/redis:8-alpine
@@ -29,7 +31,9 @@ services:
       timeout: 3s
       retries: 20
     networks:
-      - isolated-dev
+      isolated-dev:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-redis
 
 volumes:
   postgres-data:
