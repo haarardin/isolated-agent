@@ -11,8 +11,9 @@ placement = "sidecar"
 enabled = false
 
 [[agent_tools.install]]
-type = "script"
-file = "install-indexer.sh"
+type = "apt"
+packages = ["python3"]
+# Replace installer and command with a real MCP HTTP server before enabling.
 
 [agent_tools.runtime]
 command = ["/opt/indexer/server", "--port=8787"]
