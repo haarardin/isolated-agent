@@ -19,7 +19,7 @@ Host Linux
        │                               │
        ├── agent                       │
        │    ├── Codex CLI              │
-       │    ├── Go toolchain           │
+       │    ├── Optional SDKs         │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
        │    │    ├── AGENTS.md              project instructions
@@ -43,10 +43,11 @@ The agent does **not** receive the host Podman/Docker socket. Service orchestrat
 
 The environment uses three baseline image layers plus an optional Serena layer:
 
-1. `base` — OS, Go, Git, build/debug utilities.
-2. `codex` — Codex CLI installation.
-3. `project` — project dependencies, generic global Codex policy, and system defaults.
-4. `serena` — optional Serena MCP + `gopls` layer built on top of `project`.
+1. `base` — neutral Debian 13, Git, Shell, network/build utilities; **no Go SDK**.
+2. `codex` — official Codex CLI/Remote Control, reusable across projects.
+3. `dependencies` — languages, SDKs, packages and Embedded Agent Tools from `dependencies/dependencies.toml`.
+4. `project` — Codex configuration, generic policy, generated MCP settings.
+5. `serena` — optional **legacy compatibility** layer; new deployments install Serena generically through `[[agent_tools]]`.
 
 The image store belongs to the rootless Podman host user, not to a repository
 clone or Compose project. Two different project-context clones can therefore
@@ -54,6 +55,76 @@ run containers from the same image ID as long as they use the same image tags.
 
 This keeps expensive toolchain layers reusable while Compose isolates runtime
 containers, networks, and persistent state.
+
+## Persistent local Codex and Serena state
+
+By default, all Codex auth, native memory (including any SQLite files),
+sessions and history are stored in **directories under this isolated-agent
+repository**, rather than in Podman-managed named volumes. No state is
+stored in the container's disposable root filesystem:
+
+```text
+isolated-agent/
+  volumes/                      # gitignored; never commit credentials
+    codex/<project-key>/        # bind-mounted to /root/.codex
+    serena/<project-key>/       # bind-mounted to /root/.serena (Serena profile)
+```
+
+`.env.example` specifies both base directories:
+
+```dotenv
+CODEX_STATE_VOLUME=./volumes/codex
+SERENA_STATE_VOLUME=./volumes/serena
+CODEX_FEATURE_MEMORIES=true
+```
+
+`make up`, `make offline`, `make recreate-agent` and `make up-serena`
+automatically create both missing directories **before** starting
+containers. The `<project-key>` subdirectory is derived from
+`COMPOSE_PROJECT_NAME` and the canonical host `PROJECT_DIR`, so
+changing the source project cannot silently reuse its old memory.
+A marker inside the state also refuses deliberate cross-project reuse.
+
+`make memory-info` displays the exact paths. Both bind mounts
+survive container deletion and recreation; they are not removed by
+`podman volume rm` or standard Compose `down`.
+
+Serena's **project memories** stay in
+`PROJECT_DIR/.serena/memories/` (under the workspace bind), exactly as
+before. The local Serena folder above persists **global** Serena settings.
+
+For backward compatibility, setting `CODEX_STATE_VOLUME` or
+`SERENA_STATE_VOLUME` to a **bare name instead of a path** selects
+that existing Podman named volume, e.g.
+`CODEX_STATE_VOLUME=isolated-agent-demo_codex-state`.
+See [safe migration and backups](docs/codex-config.md#upgrading-an-existing-codex-volume)
+before changing an existing installation.
+
+## Universal toolchains and Agent Tools
+
+Go is no longer required by the Base image or runtime doctor. SDKs,
+Debian packages, local `.deb` / archives, installer scripts and arbitrary
+trusted commands are configured in `dependencies/dependencies.toml`.
+MCP and CLI tools share one generic `[[agent_tools]]` manifest with
+`embedded`, `sidecar`, and `external` placements.
+
+```bash
+make deps-validate
+make deps-plan       # preview generated image and MCP definitions
+make build           # build Base, Codex, Dependencies, Project
+make up              # agent + filtered Squid + enabled sidecars
+make doctor
+```
+
+Change to TOML requires an explicit `make build-project` (or `make build`)
+before restarting the agent. The Makefile maintains separate
+project-scoped Project image tags so MCP endpoint configuration from one
+checkout does not contaminate another checkout on the same host.
+Legacy named images set explicitly in `.env` remain an operator choice.
+
+Project tasks such as `make test`, `make race`, and `make integration`
+now follow `[project]` recipes instead of assuming Go is installed.
+See [Dependencies/Agent Tools design, examples and security](docs/dependencies.md).
 
 ## Project context root
 

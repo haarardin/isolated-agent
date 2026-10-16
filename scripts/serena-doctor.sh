@@ -11,10 +11,6 @@ test -x /opt/serena/venv/bin/serena || {
   echo "ERROR: Serena executable missing; did you run make build-serena/up-serena?" >&2
   exit 1
 }
-command -v gopls >/dev/null 2>&1 || {
-  echo "ERROR: gopls missing from container PATH" >&2
-  exit 1
-}
 test -w /root/.serena || {
   echo "ERROR: Serena state volume at /root/.serena is not writable" >&2
   exit 1
@@ -27,8 +23,10 @@ test -w /workspace || {
 echo "Serena CLI:"
 /opt/serena/venv/bin/serena --help >/dev/null
 echo "  executable: OK"
-echo "gopls:"
-gopls version
+if command -v gopls >/dev/null 2>&1; then
+  echo "gopls (optional):"
+  gopls version
+fi
 
 echo "Codex MCP registrations:"
 codex mcp list

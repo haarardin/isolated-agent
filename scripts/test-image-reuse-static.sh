@@ -23,6 +23,7 @@ EOF
 
 chmod +x "${fake_podman}"
 
+key="$(python3 scripts/project-state.py --project-dir "./workspace" --compose-project "isolated-agent-demo" --field key)"
 output="$(
   FAKE_PODMAN_LOG="${log}" \
     make --no-print-directory PODMAN="${fake_podman}" ensure-images
@@ -31,8 +32,8 @@ output="$(
 for image in \
   localhost/isolated-agent-base:dev \
   localhost/isolated-agent-codex:dev \
-  localhost/isolated-agent-project:dev \
-  localhost/isolated-agent-serena:dev
+  "localhost/isolated-agent-project-${key}:dev" \
+  "localhost/isolated-agent-serena-${key}:dev"
 do
   printf '%s\n' "${output}" | grep -Fq "Reusing existing image: ${image}"
   grep -Fq "image exists ${image}" "${log}"

@@ -1,5 +1,5 @@
-ARG CODEX_IMAGE=localhost/isolated-agent-codex:dev
-FROM ${CODEX_IMAGE}
+ARG DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:dev
+FROM ${DEPENDENCIES_IMAGE}
 
 # Image/runtime customization. These values become system-level Codex defaults
 # in /etc/codex/config.toml. Project-specific configuration belongs in
@@ -20,7 +20,7 @@ ARG CODEX_NETWORK_ACCESS=true
 ARG CODEX_WEB_SEARCH=cached
 ARG CODEX_PROJECT_DOC_MAX_BYTES=65536
 ARG CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES=false
-ARG CODEX_FEATURE_MEMORIES=false
+ARG CODEX_FEATURE_MEMORIES=true
 
 RUN if [ -n "${PROJECT_APT_PACKAGES}" ]; then \
       apt-get update \
@@ -40,8 +40,11 @@ RUN test ! -e /root/Documents && test ! -L /root/Documents \
 
 COPY ${CODEX_AGENTS_FILE} /opt/isolated-agent/AGENTS.md
 COPY images/project/entrypoint.sh /usr/local/bin/isolated-agent-entrypoint
+COPY .generated/codex-mcp.toml /opt/isolated-agent/codex-mcp.toml
+COPY scripts/claim-state.sh /usr/local/bin/isolated-agent-claim-state
 
-RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint \
+RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint /usr/local/bin/isolated-agent-claim-state \
+    && touch /root/.codex/.isolated-agent-volume-template \
     && mkdir -p /etc/codex /opt/isolated-agent \
     && { \
       if [ -n "${CODEX_MODEL}" ]; then printf 'model = "%s"\n' "${CODEX_MODEL}"; fi; \
@@ -65,7 +68,8 @@ RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint \
       printf 'ignore_default_excludes = %s\n' "${CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES}"; \
       printf '\n[features]\n'; \
       printf 'memories = %s\n' "${CODEX_FEATURE_MEMORIES}"; \
-    } > /etc/codex/config.toml
+    } > /etc/codex/config.toml \
+    && cat /opt/isolated-agent/codex-mcp.toml >> /etc/codex/config.toml
 
 ENV HOME=/root \
     CODEX_HOME=/root/.codex \

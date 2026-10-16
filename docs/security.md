@@ -63,3 +63,22 @@ bridge may contact one another's network services: this is **not**
 tenant isolation, and Squid's CIDR restrictions are not a firewall
 between these projects. Trust every project joining the network.
 Use project-qualified DNS aliases for proxy and database endpoints.
+
+## Codex native memory and state volumes
+
+The full CODEX_HOME, including native memory SQLite files, is bound
+to a project-specific host directory under
+`isolated-agent/volumes/codex/<project-key>` by default. The
+`CODEX_STATE_VOLUME` variable selects its base directory, and the
+directory is created before container startup. The project key is
+derived from Compose identity plus canonical host PROJECT_DIR. An in-volume identity marker refuses cross-project
+reuse even if a caller explicitly chooses the same volume name.
+A populated legacy volume without the marker requires deliberate
+one-time CODEX_BIND_EXISTING_STATE=true.
+
+SERENA_STATE_VOLUME persists global Serena data at /root/.serena;
+project-specific Serena memories stay at PROJECT_DIR/.serena/memories/.
+Both host directories survive container deletion and are excluded
+from Git. Legacy named volumes are also supported when explicitly selected.
+Never share one CODEX_HOME among concurrently running agents
+(SQLite and credential isolation). Backup only after stopping Codex.

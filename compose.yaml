@@ -10,6 +10,8 @@ services:
     environment:
       HOME: /root
       CODEX_HOME: /root/.codex
+      CODEX_PROJECT_KEY: ${CODEX_PROJECT_KEY:-}
+      CODEX_BIND_EXISTING_STATE: ${CODEX_BIND_EXISTING_STATE:-false}
       GOCACHE: /root/.cache/go-build
       GOMODCACHE: /root/.cache/go-mod
       GOPATH: /root/.cache/go
@@ -23,7 +25,10 @@ services:
       - ${PROJECT_DIR:-./workspace}:/workspace:rw
       # ~/Documents in the immutable image is a symlink to /workspace.
       # Do not add a second mount: project layer provides the alias.
-      - codex-state:/root/.codex
+      - type: ${CODEX_STATE_MOUNT_TYPE:-bind}
+        source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}
+        target: /root/.codex
+        read_only: false
       - agent-cache:/root/.cache
     read_only: true
     tmpfs:
@@ -37,6 +42,9 @@ services:
       - isolated-dev
 volumes:
   codex-state:
+    # Configurable full CODEX_HOME volume: covers memories, SQLite databases,
+    # session history, auth and Codex-managed metadata as ONE atomic unit.
+    name: ${CODEX_NAMED_VOLUME:-isolated-agent-codex-unconfigured}
   agent-cache:
 # The host-side preflight creates the configured internal network, or validates
 # and reuses the existing one. External ownership prevents compose down from
