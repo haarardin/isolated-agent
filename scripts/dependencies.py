@@ -245,7 +245,7 @@ def state_dir(tool, project_name):
     key = os.environ.get("CODEX_PROJECT_KEY", "")
     if not re.fullmatch(r"[0-9a-f]{24}", key):
         project_dir = (ROOT / os.environ.get("PROJECT_DIR", "./workspace")).resolve()
-        key = hashlib.sha256((project_name + "\\0" + str(project_dir)).encode()).hexdigest()[:24]
+        key = hashlib.sha256((project_name + "\0" + str(project_dir)).encode()).hexdigest()[:24]
     return (ROOT / state.get("base", "./volumes/tools/" + tool["id"]) / key).resolve()
 
 
