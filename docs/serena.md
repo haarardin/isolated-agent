@@ -100,7 +100,7 @@ so bind-mounted smoke projects without `.git` work too.
 
 Serena uses writable state:
 
-- `/root/.serena`: Serena global settings/logs (named volume, optionally selected with `SERENA_STATE_VOLUME`; otherwise automatically isolated by PROJECT_DIR)
+- `/root/.serena`: Serena global settings/logs (local bind directory `isolated-agent/volumes/serena/<project-key>` by default; optionally an old named volume)
 - `/root/.cache`: Python/LSP and Go build caches (existing named volume)
 - `/workspace/.serena/`: project configuration and optional Serena memories.
   This directory is in your **source bind mount**, so it persists on the host.
@@ -149,7 +149,7 @@ standard project image is restored without attempting to recreate
 already-running PostgreSQL/Redis containers. Do **not** use
 `make remove-agent && make up-example` on a running example stack:
 that can trigger the same duplicate container-name error.
-The Serena global-state volume is independently named per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena state volume remains until the explicit destructive
+The Serena global-state directory is independently resolved per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena state volume remains until the explicit destructive
 `make reset-state` cleanup.
 
 ## Limitations and security
@@ -184,3 +184,16 @@ Capture:
 Evaluate several runs for each task. Do not infer savings solely from the
 size of individual Serena results. A startup/indexing overhead could
 outweigh reduced source reads for simpler tasks.
+
+### Default persistent local Serena folder
+
+`SERENA_STATE_VOLUME=./volumes/serena` in `.env.example` sets the base
+host directory inside the `isolated-agent` repository. The
+`<project-key>` subdirectory is created automatically by `make up-serena`
+(and other agent startup Make targets). It is mounted at `/root/.serena`;
+the folder persists when the container is deleted. The application-specific
+Serena project memories stay under `PROJECT_DIR/.serena/memories/`.
+
+To use a pre-existing Podman named volume instead, set a bare name such
+as `SERENA_STATE_VOLUME=isolated-agent-demo_serena-state` and follow the
+legacy state adoption instructions in [Codex config](codex-config.md#upgrading-an-existing-codex-volume).
