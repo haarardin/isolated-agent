@@ -69,7 +69,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -136,7 +136,7 @@ network-ensure: preflight
 prepare-state:
 	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)"
 
-prepare-web: network-ensure prepare-state deps-generate
+prepare-web: network-ensure prepare-state deps-generate deps-tool-state
 	@bash scripts/prepare-web.sh
 
 deps-validate:
@@ -147,6 +147,9 @@ deps-plan:
 
 deps-generate:
 	@python3 scripts/dependencies.py generate
+
+deps-tool-state:
+	@python3 scripts/dependencies.py tool-state
 
 deps-build: deps-generate
 	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
@@ -302,17 +305,17 @@ up-example: prepare-web
 	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
 
-offline: network-ensure prepare-state deps-generate
+offline: network-ensure prepare-state deps-generate deps-tool-state
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE) up -d agent
 
-offline-example: network-ensure prepare-state deps-generate
+offline-example: network-ensure prepare-state deps-generate deps-tool-state
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
 
-offline-serena: network-ensure prepare-state deps-generate
+offline-serena: network-ensure prepare-state deps-generate deps-tool-state
 	@bash scripts/remove-service.sh squid
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_OFFLINE_SERENA) up -d agent
