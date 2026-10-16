@@ -147,6 +147,28 @@ jobs:
           docker build -f images/project/Containerfile \
             --build-arg DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:dev \
             -t localhost/isolated-agent-project:ci .
+      - name: Smoke build local installer, Embedded CLI and MCP Sidecar
+        run: |
+          python3 scripts/dependencies.py build \
+            --config dependencies/examples/ci-smoke.toml \
+            --engine docker \
+            --codex-image localhost/isolated-agent-codex:dev \
+            --base-image localhost/isolated-agent-base:dev \
+            --deps-image localhost/isolated-agent-dependencies:ci-smoke
+          docker run --rm --network none --entrypoint /bin/sh \
+            localhost/isolated-agent-dependencies:ci-smoke -ec '
+              isolated-agent-smoke-tool | grep -q smoke-installed
+              embedded-cli | grep -q embedded-ok
+            '
+          docker run --rm --network none --entrypoint /bin/sh \
+            localhost/isolated-agent-tool-isolated-agent-demo-ci-mcp:dev -ec '
+              isolated-agent-smoke-tool | grep -q smoke-installed
+              if command -v codex >/dev/null 2>&1; then
+                echo "Sidecar unexpectedly bundles Codex CLI" >&2
+                exit 1
+              fi
+            '
+
       - name: Verify projectless Remote workspace on read-only root
         run: |
           scratch="$(mktemp -d)"
