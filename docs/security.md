@@ -48,9 +48,10 @@ Remote session state and ordinary ChatGPT chat history are not
 necessarily synchronized. Mobile pairing availability is version-
 and workspace-dependent; see [remote-control.md](remote-control.md).
 
-Maintain separate Podman Compose project names/networks/subnets and
-do not bind other projects' Codex auth volumes or Postgres data
-directories across concurrent containers.
+Maintain separate Compose project names and persistent volumes.
+Prefer independent networks; share a named bridge only between trusted
+projects with explicit AGENT_NETWORK_NAME. Never bind other projects'
+Codex auth volumes or PostgreSQL data directories into active containers.
 
 ## Shared internal networks
 
