@@ -42,12 +42,13 @@ jobs:
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
           COMPOSE_PROJECT_NAME=isolated-agent-demo bash scripts/prepare-web.sh
+          python3 scripts/dependencies.py generate
           for profile in base web example serena; do
             case "$profile" in
               base) files="-f compose.yaml";;
-              web) files="-f compose.yaml -f compose.web.yaml";;
-              example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml";;
-              serena) files="-f compose.yaml -f compose.web.yaml -f compose.serena.yaml";;
+              web) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml";;
+              example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml";;
+              serena) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml";;
             esac
             docker compose $files config --format json > "/tmp/$profile.json"
           done
@@ -132,10 +133,19 @@ jobs:
         run: |
           docker build -f images/base/Containerfile -t localhost/isolated-agent-base:dev .
           docker build -f images/codex/Containerfile -t localhost/isolated-agent-codex:dev .
-      - name: Build project agent image with persistent Documents alias
+      - name: Build neutral Dependencies and project images
         run: |
-          docker build -f images/project/Containerfile \
+          docker run --rm --entrypoint sh --network none localhost/isolated-agent-base:dev -ec '
+            if command -v go >/dev/null 2>&1; then
+              echo "Generic base image must not include Go" >&2; exit 1
+            fi
+          '
+          python3 scripts/dependencies.py generate
+          docker build -f .generated/Containerfile.dependencies \
             --build-arg CODEX_IMAGE=localhost/isolated-agent-codex:dev \
+            -t localhost/isolated-agent-dependencies:dev .
+          docker build -f images/project/Containerfile \
+            --build-arg DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:dev \
             -t localhost/isolated-agent-project:ci .
       - name: Verify projectless Remote workspace on read-only root
         run: |
