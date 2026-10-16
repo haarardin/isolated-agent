@@ -67,6 +67,19 @@ optional repeated [[agent_tools.install]], and integration/runtime.
   MCP URL and unique per-COMPOSE_PROJECT_NAME DNS alias.
 - external + MCP HTTPS: only a Codex URL registration; no local image.
 
+Embedded tools and sidecars may optionally declare the same generic state
+block, without any special Serena logic:
+
+  [agent_tools.state]
+  base = "./volumes/serena"
+  target = "/root/.serena"
+
+The host generator appends the source-project identity to the base
+directory, creates it with restricted permissions before startup, and
+bind-mounts it as writable into the correct tool container. This is
+required for tools that write state under a read-only container root.
+State bases are restricted to this repository's volumes/ directory.
+
 Sidecars receive read-only /workspace, cap_drop ALL, no host ports and a
 read-only root filesystem. Sidecar binaries must be self-contained or
 install their OWN runtimes: they do not share the agent's filesystem/PATH.
