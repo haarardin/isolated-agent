@@ -55,48 +55,49 @@ run containers from the same image ID as long as they use the same image tags.
 This keeps expensive toolchain layers reusable while Compose isolates runtime
 containers, networks, and persistent state.
 
-## Persistent Codex memory per source project
+## Persistent local Codex and Serena state
 
-Codex native memory is **not just a `memories/` directory**: Codex can
-also store SQLite databases (e.g. `memories_1.sqlite`) and session state
-at the root of `CODEX_HOME`. To avoid splitting a live SQLite database
-from its other state, this project persists the **whole** `/root/.codex`
-directory in one named Podman volume.
+By default, all Codex auth, native memory (including any SQLite files),
+sessions and history are stored in **directories under this isolated-agent
+repository**, rather than in Podman-managed named volumes. No state is
+stored in the container's disposable root filesystem:
 
-The default volume name is derived from **both** the Compose project name
-and the canonical host `PROJECT_DIR`. Different `PROJECT_DIR` paths get
-**different memory/session volumes** even if the same Compose project name
-is reused. The container entrypoint also writes and checks an internal
-project-identity marker. Manually pointing a different project at an
-already-bound volume fails rather than mixing histories.
+```text
+isolated-agent/
+  volumes/                      # gitignored; never commit credentials
+    codex/<project-key>/        # bind-mounted to /root/.codex
+    serena/<project-key>/       # bind-mounted to /root/.serena (Serena profile)
+```
+
+`.env.example` specifies both base directories:
 
 ```dotenv
-PROJECT_DIR=/home/user/projects/backend-api
+CODEX_STATE_VOLUME=./volumes/codex
+SERENA_STATE_VOLUME=./volumes/serena
 CODEX_FEATURE_MEMORIES=true
-# Optional: pin names for backups / reuse on the same project:
-# CODEX_STATE_VOLUME=codex-backend-api-state
-# SERENA_STATE_VOLUME=serena-backend-api-global
 ```
 
-```bash
-make memory-info    # displays selected volume names, no credentials
-podman volume ls
-```
+`make up`, `make offline`, `make recreate-agent` and `make up-serena`
+automatically create both missing directories **before** starting
+containers. The `<project-key>` subdirectory is derived from
+`COMPOSE_PROJECT_NAME` and the canonical host `PROJECT_DIR`, so
+changing the source project cannot silently reuse its old memory.
+A marker inside the state also refuses deliberate cross-project reuse.
 
-`CODEX_STATE_VOLUME` includes **memory, sessions, authentication, skills
-and all CODEX_HOME metadata**, not just memories. This is deliberate:
-Codex's memory-related DB schema and file layout may change.
+`make memory-info` displays the exact paths. Both bind mounts
+survive container deletion and recreation; they are not removed by
+`podman volume rm` or standard Compose `down`.
 
-Serena project-specific memories **remain in `PROJECT_DIR/.serena/memories/`**
-through the host `/workspace` bind mount. The optional, independently
-configurable `SERENA_STATE_VOLUME` persists only Serena's global
-`/root/.serena` settings/state.
+Serena's **project memories** stay in
+`PROJECT_DIR/.serena/memories/` (under the workspace bind), exactly as
+before. The local Serena folder above persists **global** Serena settings.
 
-Named volumes survive `podman rm -f` and `make recreate-agent`. Do
-**not** use `make reset-state` (destructive) or `podman volume rm` if
-you want to retain them. For upgrading a previous installation **without
-losing existing authorization and memories**, follow
-[the state migration guide](docs/codex-config.md#upgrading-an-existing-codex-volume).
+For backward compatibility, setting `CODEX_STATE_VOLUME` or
+`SERENA_STATE_VOLUME` to a **bare name instead of a path** selects
+that existing Podman named volume, e.g.
+`CODEX_STATE_VOLUME=isolated-agent-demo_codex-state`.
+See [safe migration and backups](docs/codex-config.md#upgrading-an-existing-codex-volume)
+before changing an existing installation.
 
 ## Project context root
 
