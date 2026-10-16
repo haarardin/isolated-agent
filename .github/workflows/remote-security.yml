@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/remote-control-network-isolation]
+    branches: [main, feat/project-scoped-codex-memory-volumes]
   workflow_dispatch:
 jobs:
   config-and-tests:
@@ -26,6 +26,9 @@ jobs:
           # directory. Override that to match the explicit test fixture.
           export COMPOSE_PROJECT_NAME=isolated-agent-demo
           export AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev
+          export CODEX_PROJECT_KEY="$(python3 scripts/project-state.py --project-dir "$PWD/workspace" --compose-project "$COMPOSE_PROJECT_NAME" --field key)"
+          export CODEX_STATE_VOLUME="isolated-agent-codex-$CODEX_PROJECT_KEY"
+          export SERENA_STATE_VOLUME="isolated-agent-serena-$CODEX_PROJECT_KEY"
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
@@ -60,6 +63,12 @@ jobs:
               assert not sv.get('ports')
               assert not sv.get('privileged',False)
               assert not sv.get('network_mode')
+              codex_home=next(v for v in sv['volumes'] if v['target']=='/root/.codex')
+              assert codex_home['source']==f"isolated-agent-codex-{__import__('os').environ['CODEX_PROJECT_KEY']}",name
+              assert sv['environment']['CODEX_PROJECT_KEY']==__import__('os').environ['CODEX_PROJECT_KEY'],name
+              if name=='serena':
+                  serena_home=next(v for v in sv['volumes'] if v['target']=='/root/.serena')
+                  assert serena_home['source']==f"isolated-agent-serena-{__import__('os').environ['CODEX_PROJECT_KEY']}"
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
               # The image contains /root/Documents -> /workspace; ensure
               # no second host mount sneaks into any Compose profile.
@@ -147,6 +156,31 @@ jobs:
               chown -R "$(stat -c '%u:%g' /workspace)" /workspace/Codex
             '
           test "$(cat "$scratch/Codex/remote-test/result.txt")" = remote-ok
+      - name: Verify persistent Codex memory volume survives container deletion
+        run: |
+          set -euo pipefail
+          volume="isolated-agent-codex-ci-${GITHUB_RUN_ID}"
+          docker volume create "$volume" >/dev/null
+          trap 'docker volume rm "$volume" >/dev/null 2>&1 || true' EXIT
+          key="aaaaaaaaaaaaaaaaaaaaaaaa"
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'mkdir -p "$CODEX_HOME/memories"; echo persisted > "$CODEX_HOME/memories/probe.txt"'
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'test "$(cat "$CODEX_HOME/memories/probe.txt")" = persisted'
+          if docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY=bbbbbbbbbbbbbbbbbbbbbbbb \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci true; then
+            echo "Cross-project memory reuse unexpectedly allowed" >&2
+            exit 1
+          fi
+
       - name: Check experimental CLI subcommands (without login)
         run: |
           docker run --rm --entrypoint /bin/bash --network none \
