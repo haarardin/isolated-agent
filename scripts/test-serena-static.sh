@@ -6,9 +6,13 @@ for script in scripts/test-serena-static.sh scripts/serena-doctor.sh scripts/com
   bash -n "$script"
 done
 
-grep -Fq '[mcp_servers.serena]' images/serena/Containerfile
 grep -Fq 'serena-agent==${SERENA_VERSION}' images/serena/Containerfile
-grep -Fq 'GOBIN=/usr/local/bin go install' images/serena/Containerfile
+grep -Fq 'serena' dependencies/examples/go-serena.toml
+grep -Fq 'gopls' dependencies/examples/go-serena.toml
+if grep -Fq 'go install' images/serena/Containerfile; then
+  echo 'ERROR: Legacy Serena container must not require Go to build' >&2
+  exit 1
+fi
 grep -Fq -- '--transport=stdio' images/serena/Containerfile
 grep -Fq -- '--enable-web-dashboard=false' images/serena/Containerfile
 grep -Fq -- '--project=/workspace' images/serena/Containerfile
