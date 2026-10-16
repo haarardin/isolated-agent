@@ -51,6 +51,12 @@ verification below.
    BLOCK_CIDRS=
    ```
 
+   `PROJECT_DIR` **must exist**. Native Codex memories are enabled by default
+   in the newly built project image. Persistent Codex state is selected
+   automatically by source project, or with CODEX_STATE_VOLUME in .env.
+   See [state migration](codex-config.md#upgrading-an-existing-codex-volume)
+   before upgrading an existing installation.
+
    `PROJECT_DIR` **must exist**. It is mounted read-write as
    `/workspace`. In the current project image, `/root/Documents`
    is an image-baked symlink to `/workspace`; projectless mobile tasks
@@ -72,6 +78,7 @@ verification below.
    ```bash
    make network-static
    make preflight           # plan: no changes to Podman networks
+   make memory-info         # shows project-specific memory volume names
    make network-info        # show planned or reusable configured network
    ```
 
@@ -148,6 +155,11 @@ verification below.
    execution; verify a response **and** the host file.
 
 ## B. Upgrade an existing agent (images and persistent data already present)
+
+If you need to preserve Codex authentication/history from an existing
+installation, **first bind the old volume** as described in
+[Codex volume migration](codex-config.md#upgrading-an-existing-codex-volume).
+Do not silently switch to a fresh empty CODEX_STATE_VOLUME.
 
 This is the shortest safe sequence for an existing instance from an older
 PR #6 revision, especially one that fails with
