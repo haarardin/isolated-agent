@@ -27,8 +27,17 @@ jobs:
           export COMPOSE_PROJECT_NAME=isolated-agent-demo
           export AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev
           export CODEX_PROJECT_KEY="$(python3 scripts/project-state.py --project-dir "$PWD/workspace" --compose-project "$COMPOSE_PROJECT_NAME" --field key)"
-          export CODEX_STATE_VOLUME="isolated-agent-codex-$CODEX_PROJECT_KEY"
-          export SERENA_STATE_VOLUME="isolated-agent-serena-$CODEX_PROJECT_KEY"
+          export CODEX_STATE_VOLUME="./volumes/codex"
+          export SERENA_STATE_VOLUME="./volumes/serena"
+          export CODEX_STATE_MOUNT_TYPE=bind
+          export SERENA_STATE_MOUNT_TYPE=bind
+          export CODEX_STATE_MOUNT_SOURCE="$PWD/volumes/codex/$CODEX_PROJECT_KEY"
+          export SERENA_STATE_MOUNT_SOURCE="$PWD/volumes/serena/$CODEX_PROJECT_KEY"
+          export CODEX_NAMED_VOLUME="isolated-agent-codex-$CODEX_PROJECT_KEY"
+          export SERENA_NAMED_VOLUME="isolated-agent-serena-$CODEX_PROJECT_KEY"
+          python3 scripts/prepare-state.py \
+            --codex-type "$CODEX_STATE_MOUNT_TYPE" --codex-source "$CODEX_STATE_MOUNT_SOURCE" \
+            --serena-type "$SERENA_STATE_MOUNT_TYPE" --serena-source "$SERENA_STATE_MOUNT_SOURCE"
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
@@ -64,13 +73,13 @@ jobs:
               assert not sv.get('privileged',False)
               assert not sv.get('network_mode')
               codex_home=next(v for v in sv['volumes'] if v['target']=='/root/.codex')
-              assert codex_home['source']=='codex-state',name
-              assert conf['volumes']['codex-state']['name']==f"isolated-agent-codex-{__import__('os').environ['CODEX_PROJECT_KEY']}",name
+              assert codex_home['type']=='bind',name
+              assert codex_home['source']==__import__('os').environ['CODEX_STATE_MOUNT_SOURCE'],name
               assert sv['environment']['CODEX_PROJECT_KEY']==__import__('os').environ['CODEX_PROJECT_KEY'],name
               if name=='serena':
                   serena_home=next(v for v in sv['volumes'] if v['target']=='/root/.serena')
-                  assert serena_home['source']=='serena-state'
-                  assert conf['volumes']['serena-state']['name']==f"isolated-agent-serena-{__import__('os').environ['CODEX_PROJECT_KEY']}"
+                  assert serena_home['type']=='bind'
+                  assert serena_home['source']==__import__('os').environ['SERENA_STATE_MOUNT_SOURCE']
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
               # The image contains /root/Documents -> /workspace; ensure
               # no second host mount sneaks into any Compose profile.
@@ -180,6 +189,38 @@ jobs:
             -v "$volume:/root/.codex" \
             localhost/isolated-agent-project:ci true; then
             echo "Cross-project memory reuse unexpectedly allowed" >&2
+            exit 1
+          fi
+
+      - name: Verify repository-local bind storage survives container removal
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          key="cccccccccccccccccccccccc"
+          folder="$scratch/volumes/codex/$key"
+          mkdir -p "$folder"
+          cleanup() {
+            docker run --rm --network none --entrypoint sh \
+              -v "$scratch:/hoststate" localhost/isolated-agent-project:ci \
+              -c 'rm -rf /hoststate/volumes' >/dev/null 2>&1 || true
+            rm -rf "$scratch"
+          }
+          trap cleanup EXIT
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'test "$(cat "$CODEX_HOME/memories/test.txt")" = bind-ok'
+          if docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY=dddddddddddddddddddddddd \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci true; then
+            echo "Cross-project bind memory reuse unexpectedly allowed" >&2
             exit 1
           fi
 
