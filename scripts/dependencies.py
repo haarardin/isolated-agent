@@ -249,7 +249,7 @@ def generate(data, folder=OUT):
             (folder / ("Containerfile.tool-" + tid)).write_text("\n".join(side) + "\n")
             alias = project_name + "-tool-" + tid
             compose += ["  tool-" + tid + ":",
-                        "    image: localhost/isolated-agent-tool-" + tid + ":dev",
+                        "    image: localhost/isolated-agent-tool-" + project_name + "-" + tid + ":dev",
                         "    read_only: true", "    cap_drop:", "      - ALL",
                         "    security_opt:", "      - no-new-privileges:true",
                         "    volumes:", "      - " + "$" + "{PROJECT_DIR:-./workspace}:/workspace:ro",
@@ -279,7 +279,7 @@ def generate(data, folder=OUT):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command"))
+    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command", "sidecar-services"))
     parser.add_argument("--config", type=Path, default=CONFIG)
     parser.add_argument("--engine", default="podman")
     parser.add_argument("--base-image", default="localhost/isolated-agent-base:dev")
@@ -291,6 +291,9 @@ def main():
         data = parse(args.config)
         if args.action == "validate":
             print("Dependencies config valid")
+            return 0
+        if args.action == "sidecar-services":
+            print(" ".join("tool-" + x["id"] for x in enabled(data) if x["placement"] == "sidecar"))
             return 0
         if args.action == "project-command":
             value = data.get("project", {}).get(args.name, "")
@@ -308,7 +311,7 @@ def main():
         for name in summary["sidecars"]:
             subprocess.run([args.engine, "build", "-f", str(OUT / ("Containerfile.tool-" + name)),
                             "--build-arg", "BASE_IMAGE=" + args.base_image,
-                            "-t", "localhost/isolated-agent-tool-" + name + ":dev", "."],
+                            "-t", "localhost/isolated-agent-tool-" + os.environ.get("COMPOSE_PROJECT_NAME", "isolated-agent-demo") + "-" + name + ":dev", "."],
                            cwd=ROOT, check=True)
         return 0
     except (ValueError, OSError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as exc:
