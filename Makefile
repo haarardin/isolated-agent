@@ -260,16 +260,20 @@ down-serena-example:
 	$(COMPOSE_SERENA_EXAMPLE) down
 
 up: prepare-web
+	@bash scripts/check-agent-state.sh
 	$(COMPOSE_WEB) up -d
 
 up-example: prepare-web
+	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
 
 offline: network-ensure
+	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE) up -d agent
 
 offline-example: network-ensure
+	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
 
