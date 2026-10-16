@@ -67,13 +67,14 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
-	  'make build          Force-build base, Codex and project image layers' \
+	  'make build          Build Base, Codex, Dependencies and Project images' \
+	  'make deps-plan     Inspect generated tools and MCP configuration' \
 	  'make build-serena   Force-build optional Serena + gopls layer' \
 	  'make ensure-images  Reuse existing images; build only missing layers' \
 	  'make test-image-reuse-static Validate image reuse logic without Podman' \
@@ -135,6 +136,21 @@ prepare-state:
 
 prepare-web: network-ensure prepare-state deps-generate
 	@bash scripts/prepare-web.sh
+
+deps-validate:
+	@python3 scripts/dependencies.py validate
+
+deps-plan:
+	@python3 scripts/dependencies.py plan
+
+deps-generate:
+	@python3 scripts/dependencies.py generate
+
+deps-build: deps-generate
+	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
+
+deps-tools-up: deps-generate
+	@services="$(python3 scripts/dependencies.py sidecar-services)"; if [ -n "$services" ]; then $(COMPOSE_WEB) up -d $services; fi
 
 doctor:
 	@bash scripts/doctor.sh
