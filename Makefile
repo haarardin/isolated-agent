@@ -219,10 +219,10 @@ build-codex:
 		-t $(CODEX_IMAGE) \
 		.
 
-build-project:
+build-project: deps-build
 	$(PODMAN) build \
 		-f images/project/Containerfile \
-		--build-arg CODEX_IMAGE="$(CODEX_IMAGE)" \
+		--build-arg DEPENDENCIES_IMAGE="$(DEPENDENCIES_IMAGE)" \
 		--build-arg PROJECT_APT_PACKAGES="$(PROJECT_APT_PACKAGES)" \
 		--build-arg CODEX_AGENTS_FILE="$(CODEX_AGENTS_FILE)" \
 		--build-arg CODEX_MODEL="$(CODEX_MODEL)" \
@@ -258,6 +258,7 @@ build-serena:
 # Do not invoke this while a Codex session is actively running.
 up-serena: prepare-web
 	$(COMPOSE_WEB) up -d squid
+	@$(MAKE) deps-tools-up
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA) up -d agent
 
@@ -266,6 +267,7 @@ up-serena: prepare-web
 # Bootstrap the optional services once with make up-example.
 up-serena-example: prepare-web
 	$(COMPOSE_WEB) up -d squid
+	@$(MAKE) deps-tools-up
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA_EXAMPLE) up -d agent
 
@@ -331,6 +333,7 @@ remove-agent:
 	@bash scripts/remove-service.sh agent
 
 recreate-agent: prepare-web
+	@$(MAKE) deps-tools-up
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_EXAMPLE) up -d agent
 
@@ -375,13 +378,16 @@ shell:
 	$(COMPOSE) exec agent bash
 
 test:
-	$(COMPOSE) exec agent bash -c 'if [ -f Makefile ] && grep -qE "^test:" Makefile; then make test; else go test ./...; fi'
+	@bash scripts/run-project-command.sh test
 
 race:
-	$(COMPOSE) exec agent go test -race ./...
+	@bash scripts/run-project-command.sh race
 
 integration:
-	$(COMPOSE) exec agent bash -c 'if [ -f Makefile ] && grep -qE "^integration:" Makefile; then make integration; else go test -tags=integration ./...; fi'
+	@bash scripts/run-project-command.sh integration
+
+deps-lint:
+	@bash scripts/run-project-command.sh lint
 
 logs:
 	$(COMPOSE) logs -f
