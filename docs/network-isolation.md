@@ -88,7 +88,7 @@ Codex agent (internal-only network, AGENT_SUBNET)
      |             |                 |
  /workspace     postgres          redis
      |
-     +----> squid:3128 (internal + outbound networks)
+     +----> <project>-egress:3128 / Squid (internal + outbound)
                     |
                 Internet
 ```
@@ -180,7 +180,7 @@ make doctor
 make network-check
 podman network ls
 make network-info
-podman network inspect <project>_isolated-dev
+podman network inspect "$AGENT_NETWORK_NAME"   # on host; or use make network-info
 ```
 
 Check that the agent has **one** internal network only, that Squid
@@ -196,23 +196,23 @@ For command line/manual checks within `make shell`:
 # Explicitly bypass environment proxy; must fail
 curl --noproxy '*' -v --connect-timeout 3 https://1.1.1.1/
 # Must work via Squid:
-curl -I --noproxy '' -x http://squid:3128 https://example.com/
+curl -I --noproxy '' -x "$HTTP_PROXY" https://example.com/
 # Must return 403 via Squid; do NOT allow NO_PROXY to bypass proxy:
-curl -I --noproxy '' -x http://squid:3128 http://127.0.0.1/
-curl -I --noproxy '' -x http://squid:3128 http://169.254.169.254/
+curl -I --noproxy '' -x "$HTTP_PROXY" http://127.0.0.1/
+curl -I --noproxy '' -x "$HTTP_PROXY" http://169.254.169.254/
 # Native TCP to allowed peer DB remains possible:
 getent hosts postgres redis
 ```
 
 **Squid ACL testing pitfall:** `NO_PROXY` (and `no_proxy`) includes
-`127.0.0.1`. Even with an explicit `-x http://squid:3128`, curl may
+`127.0.0.1`. Even with an explicit `-x "$HTTP_PROXY"`, curl may
 **bypass the proxy** for that address, then report HTTP `000` because
 nothing is listening on the container's loopback. This does not prove
 Squid allowed or denied the request. Use `--noproxy ''` to force a proxy
 test, and `--noproxy '*'` only when deliberately testing the absence
 of a direct route. `make network-check` uses both forms accordingly.
 
-`NO_PROXY` includes PostgreSQL/Redis service names so native local
+`NO_PROXY` includes local and peer service names so native local
 clients connect to peers directly (the Squid ACL only applies to
 connections that traverse Squid). Arbitrary peers attached to the
 internal network can reach each other; do not attach untrusted projects.
