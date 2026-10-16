@@ -273,7 +273,7 @@ up-serena-example: prepare-web
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_SERENA_EXAMPLE) up -d agent
 
-codex-serena:
+codex-serena: deps-generate
 	$(COMPOSE_SERENA) exec agent codex
 
 serena-doctor:
@@ -282,16 +282,16 @@ serena-doctor:
 test-serena-static:
 	@bash scripts/test-serena-static.sh
 
-ps-serena:
+ps-serena: deps-generate
 	$(COMPOSE_SERENA) ps
 
-ps-serena-example:
+ps-serena-example: deps-generate
 	$(COMPOSE_SERENA_EXAMPLE) ps
 
-down-serena:
+down-serena: deps-generate
 	$(COMPOSE_SERENA) down
 
-down-serena-example:
+down-serena-example: deps-generate
 	$(COMPOSE_SERENA_EXAMPLE) down
 
 up: prepare-web
@@ -317,10 +317,10 @@ offline-serena: network-ensure prepare-state deps-generate
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_OFFLINE_SERENA) up -d agent
 
-down:
+down: deps-generate
 	$(COMPOSE_WEB) down
 
-down-example:
+down-example: deps-generate
 	$(COMPOSE_EXAMPLE) down
 
 migrate-network:
@@ -328,7 +328,7 @@ migrate-network:
 	@bash scripts/migrate-network.sh
 	@$(MAKE) up
 
-stop-agent:
+stop-agent: deps-generate
 	$(COMPOSE_EXAMPLE) stop agent
 
 remove-agent:
@@ -391,16 +391,16 @@ integration:
 deps-lint:
 	@bash scripts/run-project-command.sh lint
 
-logs:
+logs: deps-generate
 	$(COMPOSE) logs -f
 
-logs-example:
+logs-example: deps-generate
 	$(COMPOSE_EXAMPLE) logs -f
 
-ps:
+ps: deps-generate
 	$(COMPOSE_WEB) ps
 
-ps-example:
+ps-example: deps-generate
 	$(COMPOSE_EXAMPLE) ps
 
 reset-state:
