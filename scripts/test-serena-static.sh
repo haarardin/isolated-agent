@@ -12,7 +12,8 @@ grep -Fq 'GOBIN=/usr/local/bin go install' images/serena/Containerfile
 grep -Fq -- '--transport=stdio' images/serena/Containerfile
 grep -Fq -- '--enable-web-dashboard=false' images/serena/Containerfile
 grep -Fq -- '--project=/workspace' images/serena/Containerfile
-grep -Fq 'serena-state:/root/.serena' compose.serena.yaml
+grep -Fq 'target: /root/.serena' compose.serena.yaml
+grep -Fq 'source: ${SERENA_STATE_MOUNT_SOURCE:-' compose.serena.yaml
 grep -Fq 'image: ${SERENA_IMAGE:-localhost/isolated-agent-serena:dev}' compose.serena.yaml
 
 # Ensure we do not accidentally elevate the container or publish a port.
