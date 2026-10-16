@@ -128,7 +128,7 @@ def parse(path=CONFIG):
         if not isinstance(tid, str) or not IDENT.fullmatch(tid) or tid in seen:
             err("Invalid/duplicate agent tool id: " + str(tid))
         seen.add(tid)
-        if set(tool) - {"id", "enabled", "placement", "kind", "install", "runtime", "integration"}:
+        if set(tool) - {"id", "enabled", "placement", "kind", "install", "runtime", "integration", "state"}:
             err("Unknown agent tool fields")
         if not isinstance(tool.get("enabled", True), bool):
             err("Tool enabled must be bool")
@@ -141,6 +141,18 @@ def parse(path=CONFIG):
         for i, step in enumerate(toolsteps):
             check_step(step, tid + ".install[" + str(i) + "]")
         run, it = tool.get("runtime", {}), tool.get("integration", {})
+        state = tool.get("state", {})
+        if not isinstance(state, dict) or set(state) - {"base", "target"}:
+            err(tid + ": invalid tool state fields")
+        if state:
+            base = state.get("base", "./volumes/tools/" + tid)
+            mount = state.get("target")
+            if not isinstance(base, str) or not (base.startswith("./volumes/") or base.startswith("volumes/")) or ".." in Path(base).parts:
+                err(tid + ": state base must be under this repository's volumes/")
+            if not isinstance(mount, str) or not mount.startswith("/") or mount == "/" or ".." in PurePosixPath(mount).parts:
+                err(tid + ": state target must be an absolute container directory")
+            if where == "external":
+                err(tid + ": external tool cannot mount local state")
         if not isinstance(run, dict) or not isinstance(it, dict):
             err(tid + ": invalid runtime/integration")
         if where == "external" and (toolsteps or run):
@@ -225,6 +237,32 @@ def steps(lines, items):
             lines.append(run_line(test))
 
 
+
+def state_dir(tool, project_name):
+    state = tool.get("state", {})
+    if not state:
+        return None
+    key = os.environ.get("CODEX_PROJECT_KEY", "")
+    if not re.fullmatch(r"[0-9a-f]{24}", key):
+        project_dir = (ROOT / os.environ.get("PROJECT_DIR", "./workspace")).resolve()
+        key = hashlib.sha256((project_name + "\\0" + str(project_dir)).encode()).hexdigest()[:24]
+    return (ROOT / state.get("base", "./volumes/tools/" + tool["id"]) / key).resolve()
+
+
+def prepare_tool_state(data):
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "isolated-agent-demo")
+    for tool in enabled(data):
+        path = state_dir(tool, project_name)
+        if path is None:
+            continue
+        if not path.is_relative_to((ROOT / "volumes").resolve()) or path.is_symlink():
+            err("Unsafe tool persistent state path: " + str(path))
+        path.mkdir(parents=True, mode=0o700, exist_ok=True)
+        if not path.is_dir():
+            err("Tool state directory not accessible: " + str(path))
+        print("Tool state ready:", tool["id"], path)
+
+
 def enabled(data):
     return [t for t in data.get("agent_tools", []) if t.get("enabled", True)]
 
@@ -246,6 +284,11 @@ def generate(data, folder=OUT):
         err("Unsafe Compose project name for MCP DNS")
     sidecars = []
     compose = ["# Generated sidecar overlay", "services:"]
+    agent_states = [(t, state_dir(t, project_name)) for t in enabled(data) if t["placement"] == "embedded" and t.get("state")]
+    if agent_states:
+        compose += ["  agent:", "    volumes:"]
+        for t, path in agent_states:
+            compose.append("      - " + json.dumps(str(path) + ":" + t["state"]["target"] + ":rw"))
     mcp = ["# Generated MCP configuration"]
     for tool in enabled(data):
         tid, where, kind = tool["id"], tool["placement"], tool["kind"]
@@ -260,6 +303,7 @@ def generate(data, folder=OUT):
                         "    read_only: true", "    cap_drop:", "      - ALL",
                         "    security_opt:", "      - no-new-privileges:true",
                         "    volumes:", "      - " + "$" + "{PROJECT_DIR:-./workspace}:/workspace:ro",
+                        *([] if not tool.get("state") else ["      - " + json.dumps(str(state_dir(tool, project_name)) + ":" + tool["state"]["target"] + ":rw")]),
                         "    tmpfs:", "      - /tmp:rw,nosuid,nodev,size=128m",
                         "    networks:", "      isolated-dev:", "        aliases:", "          - " + alias,
                         "    command: " + json.dumps(tool["runtime"]["command"])]
@@ -288,7 +332,7 @@ def generate(data, folder=OUT):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command", "sidecar-services"))
+    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command", "sidecar-services", "tool-state"))
     parser.add_argument("--config", type=Path, default=CONFIG)
     parser.add_argument("--engine", default="podman")
     parser.add_argument("--base-image", default="localhost/isolated-agent-base:dev")
@@ -300,6 +344,9 @@ def main():
         data = parse(args.config)
         if args.action == "validate":
             print("Dependencies config valid")
+            return 0
+        if args.action == "tool-state":
+            prepare_tool_state(data)
             return 0
         if args.action == "sidecar-services":
             print(" ".join("tool-" + x["id"] for x in enabled(data) if x["placement"] == "sidecar"))
