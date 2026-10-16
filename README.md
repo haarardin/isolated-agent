@@ -55,6 +55,49 @@ run containers from the same image ID as long as they use the same image tags.
 This keeps expensive toolchain layers reusable while Compose isolates runtime
 containers, networks, and persistent state.
 
+## Persistent Codex memory per source project
+
+Codex native memory is **not just a `memories/` directory**: Codex can
+also store SQLite databases (e.g. `memories_1.sqlite`) and session state
+at the root of `CODEX_HOME`. To avoid splitting a live SQLite database
+from its other state, this project persists the **whole** `/root/.codex`
+directory in one named Podman volume.
+
+The default volume name is derived from **both** the Compose project name
+and the canonical host `PROJECT_DIR`. Different `PROJECT_DIR` paths get
+**different memory/session volumes** even if the same Compose project name
+is reused. The container entrypoint also writes and checks an internal
+project-identity marker. Manually pointing a different project at an
+already-bound volume fails rather than mixing histories.
+
+```dotenv
+PROJECT_DIR=/home/user/projects/backend-api
+CODEX_FEATURE_MEMORIES=true
+# Optional: pin names for backups / reuse on the same project:
+# CODEX_STATE_VOLUME=codex-backend-api-state
+# SERENA_STATE_VOLUME=serena-backend-api-global
+```
+
+```bash
+make memory-info    # displays selected volume names, no credentials
+podman volume ls
+```
+
+`CODEX_STATE_VOLUME` includes **memory, sessions, authentication, skills
+and all CODEX_HOME metadata**, not just memories. This is deliberate:
+Codex's memory-related DB schema and file layout may change.
+
+Serena project-specific memories **remain in `PROJECT_DIR/.serena/memories/`**
+through the host `/workspace` bind mount. The optional, independently
+configurable `SERENA_STATE_VOLUME` persists only Serena's global
+`/root/.serena` settings/state.
+
+Named volumes survive `podman rm -f` and `make recreate-agent`. Do
+**not** use `make reset-state` (destructive) or `podman volume rm` if
+you want to retain them. For upgrading a previous installation **without
+losing existing authorization and memories**, follow
+[the state migration guide](docs/codex-config.md#upgrading-an-existing-codex-volume).
+
 ## Project context root
 
 `/workspace` is the canonical project root inside the agent.
