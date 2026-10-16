@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import stat
 import pathlib
 import subprocess
 import tempfile
@@ -42,6 +44,36 @@ class ProjectStateTests(unittest.TestCase):
                                 state.project_key(str(b), "agent"))
             self.assertNotEqual(state.project_key(str(a), "agent"),
                                 state.project_key(str(a), "other-agent"))
+
+    def test_storage_defaults_to_local_per_project_subdirs(self):
+        with tempfile.TemporaryDirectory() as work:
+            root = pathlib.Path(work)
+            first = state.project_key(str(root / "app-a"), "agent")
+            second = state.project_key(str(root / "app-b"), "agent")
+            mode, source, _ = state.storage_spec(str(root / "volumes" / "codex"), "codex", first)
+            self.assertEqual(mode, "bind")
+            self.assertEqual(pathlib.Path(source), root / "volumes" / "codex" / first)
+            _, other, _ = state.storage_spec(str(root / "volumes" / "codex"), "codex", second)
+            self.assertNotEqual(source, other)
+            self.assertEqual(state.storage_spec("existing-codex-state", "codex", first),
+                             ("volume", "codex-state", "existing-codex-state"))
+
+    def test_state_directories_auto_created_and_persist(self):
+        preparation = ROOT / "scripts/prepare-state.py"
+        with tempfile.TemporaryDirectory() as work:
+            root = pathlib.Path(work)
+            codex = root / "volumes" / "codex" / KEY
+            serena = root / "volumes" / "serena" / KEY
+            args = ["python3", str(preparation), "--codex-type", "bind",
+                    "--codex-source", str(codex), "--serena-type", "bind",
+                    "--serena-source", str(serena)]
+            subprocess.run(args, check=True, capture_output=True)
+            self.assertTrue(codex.is_dir())
+            self.assertTrue(serena.is_dir())
+            self.assertEqual(stat.S_IMODE(codex.stat().st_mode), 0o700)
+            (codex / "memories.sqlite").write_bytes(b"not erased")
+            subprocess.run(args, check=True, capture_output=True)
+            self.assertEqual((codex / "memories.sqlite").read_bytes(), b"not erased")
 
     def test_invalid_identity(self):
         with self.assertRaises(ValueError):
@@ -115,13 +147,17 @@ class ProjectStateTests(unittest.TestCase):
         compose = (ROOT / "compose.yaml").read_text()
         serena = (ROOT / "compose.serena.yaml").read_text()
         image = (ROOT / "images/project/Containerfile").read_text()
-        self.assertIn("CODEX_STATE_VOLUME ?= isolated-agent-codex-$(CODEX_PROJECT_KEY)", mk)
-        self.assertIn("SERENA_STATE_VOLUME ?= isolated-agent-serena-$(CODEX_PROJECT_KEY)", mk)
+        self.assertIn("CODEX_STATE_VOLUME ?= ./volumes/codex", mk)
+        self.assertIn("SERENA_STATE_VOLUME ?= ./volumes/serena", mk)
         self.assertIn("CODEX_FEATURE_MEMORIES ?= true", mk)
-        self.assertIn("name: ${CODEX_STATE_VOLUME:-", compose)
-        self.assertIn("name: ${SERENA_STATE_VOLUME:-", serena)
+        self.assertIn("source: ${CODEX_STATE_MOUNT_SOURCE:-", compose)
+        self.assertIn("source: ${SERENA_STATE_MOUNT_SOURCE:-", serena)
         self.assertIn("CODEX_PROJECT_KEY: ${CODEX_PROJECT_KEY:-}", compose)
         self.assertIn("ARG CODEX_FEATURE_MEMORIES=true", image)
+        env = (ROOT / ".env.example").read_text()
+        self.assertIn("CODEX_STATE_VOLUME=./volumes/codex", env)
+        self.assertIn("SERENA_STATE_VOLUME=./volumes/serena", env)
+        self.assertIn("/volumes/", (ROOT / ".gitignore").read_text())
         self.assertIn("printf 'memories = %s", image)
 
 
