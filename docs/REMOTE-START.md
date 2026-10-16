@@ -59,7 +59,7 @@ verification below.
    Keep the other `.env` settings from `.env.example`.
 
    The default `auto` mode allocates a free subnet per new network and
-   safely reuses an existing matching project network. For multiple
+   safely reuses an existing matching named network. For multiple
    independent clones, choose distinct `COMPOSE_PROJECT_NAME`.
    Set the same `AGENT_NETWORK_NAME` only for trusted projects that
    must share a network;
@@ -72,7 +72,7 @@ verification below.
    ```bash
    make network-static
    make preflight           # plan: no changes to Podman networks
-   make network-info        # show planned or reusable per-project network
+   make network-info        # show planned or reusable configured network
    ```
 
    Requirements: rootless Podman, explicit `podman-compose`, Python 3,
@@ -244,7 +244,7 @@ systemd-in-container or public TCP listener is required.
 | Symptom | What to do |
 |---|---|
 | `make preflight` reports an old non-internal network | Use section C *only if it is this Compose project's network* |
-| `make network-check` returns `000` for 127.0.0.1 | Pull the updated PR script; Squid ACL tests must use `curl --noproxy '' -x http://squid:3128` |
+| `make network-check` returns `000` for 127.0.0.1 | Pull the updated PR script; Squid ACL tests must use `curl --noproxy '' -x "$HTTP_PROXY"` |
 | `remote-start` cannot find a container | Run `make up` and `make ps` |
 | `remote-start` refuses due to missing Squid | Run `make up`, not `make offline`; then `make network-check` |
 | Remote daemon reports stopped | Run `make remote-start`, then `make remote-status` |
