@@ -4,6 +4,17 @@ export
 endif
 
 COMPOSE_PROJECT_NAME ?= isolated-agent-demo
+PROJECT_DIR ?= ./workspace
+# A canonical-project-path fingerprint prevents state/history/long-term-memory
+# from leaking when PROJECT_DIR changes under the same Compose project name.
+CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --field key)
+CODEX_STATE_VOLUME ?= isolated-agent-codex-$(CODEX_PROJECT_KEY)
+SERENA_STATE_VOLUME ?= isolated-agent-serena-$(CODEX_PROJECT_KEY)
+# Explicit, one-time opt-in only for a pre-existing, unbound volume.
+CODEX_BIND_EXISTING_STATE ?= false
+SERENA_BIND_EXISTING_STATE ?= false
+export PROJECT_DIR CODEX_PROJECT_KEY CODEX_STATE_VOLUME SERENA_STATE_VOLUME
+export CODEX_BIND_EXISTING_STATE SERENA_BIND_EXISTING_STATE
 AGENT_SUBNET ?= auto
 # Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
 AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev
@@ -42,9 +53,9 @@ CODEX_NETWORK_ACCESS ?= true
 CODEX_WEB_SEARCH ?= cached
 CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
-CODEX_FEATURE_MEMORIES ?= false
+CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -69,6 +80,7 @@ help:
 	  'make remote-doctor  Safe daemon/network diagnostics' \
 	  'make network-check Test rootless network isolation' \
 	  'make network-info  Inspect assigned project network' \
+	  'make memory-info   Show project-scoped persistent volumes (no secrets)' \
 	  'make network-ensure Create or reuse the project's internal network' \
 	  'make migrate-network CONFIRM=YES   Migrate old network' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
@@ -88,6 +100,13 @@ help:
 	  'make clean          Force-clean this Compose project, keep volumes' \
 	  'make reset-example-db Delete only example PostgreSQL data' \
 	  'make reset-state    Force-clean this Compose project and volumes'
+
+memory-info:
+	@printf 'Project path:         %s\n' "$(abspath $(PROJECT_DIR))"
+	@printf 'Project key:          %s\n' "$(CODEX_PROJECT_KEY)"
+	@printf 'Codex CODEX_HOME:     %s -> /root/.codex\n' "$(CODEX_STATE_VOLUME)"
+	@printf 'Serena global state:  %s -> /root/.serena\n' "$(SERENA_STATE_VOLUME)"
+	@printf '%s\n' 'Serena project memories remain in PROJECT_DIR/.serena/memories/'
 
 preflight:
 	@bash scripts/preflight.sh
