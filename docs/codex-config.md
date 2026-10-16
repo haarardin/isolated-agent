@@ -24,7 +24,7 @@ Mounted by Compose at:
 
 It contains authentication and Codex-managed persistent state.
 
-Rebuilding an image must not erase it. The named volume is configurable as `CODEX_STATE_VOLUME`; by default it is automatically derived from the canonical source `PROJECT_DIR` and `COMPOSE_PROJECT_NAME`.
+Rebuilding an image must not erase it. By default, `CODEX_HOME` is bind-mounted from `./volumes/codex/<project-key>` in the root of the isolated-agent checkout; the directory is created automatically before container startup. A bare Podman volume name remains supported for legacy projects.
 
 The startup script only refreshes the image-owned global `AGENTS.md`; it does not clear or recreate the rest of the directory.
 
@@ -48,83 +48,110 @@ Codex applies configuration/instructions by scope and precedence. Project config
 
 ## Native Codex memory and persisted state
 
-Native `[features] memories = true` is the default in newly built project
-images. Codex may persist `memories/`, `memories_1.sqlite`, sessions,
-other SQLite databases, authentication and its CLI installation under
-`/root/.codex`. File names can change between Codex versions; do **not**
-mount just `memories/`. The entire `CODEX_HOME` is a single persistent
-volume, selected by `CODEX_STATE_VOLUME`.
+`CODEX_FEATURE_MEMORIES=true` enables native memory in new builds.
+Codex may store `memories/`, SQLite database files, sessions, credentials
+and other metadata directly in `CODEX_HOME`. For this reason we bind the
+**entire** `/root/.codex` directory rather than only `memories/`.
+
+### Default directories (next to the project's images/ and Makefile)
+
+```text
+isolated-agent/
+  images/...
+  Makefile
+  .env
+  volumes/
+    codex/<project-key>/        -> /root/.codex
+    serena/<project-key>/       -> /root/.serena
+```
+
+In `.env` (the defaults are also in `.env.example`):
 
 ```dotenv
 COMPOSE_PROJECT_NAME=codex-backend
 PROJECT_DIR=/home/user/projects/backend
 CODEX_FEATURE_MEMORIES=true
-# Optional explicit choice of durable volume:
-# CODEX_STATE_VOLUME=codex-backend-memory
-# Optional Serena global-state volume (not project Serena memories):
-# SERENA_STATE_VOLUME=serena-backend-state
+
+CODEX_STATE_VOLUME=./volumes/codex
+SERENA_STATE_VOLUME=./volumes/serena
 ```
+
+These two variables identify **host base directories**, not named
+volumes. The system automatically appends `<project-key>`, derived
+from canonical `PROJECT_DIR` and `COMPOSE_PROJECT_NAME`; multiple
+projects in one isolated-agent checkout therefore get independent
+subdirectories and volume identity markers.
 
 ```bash
-make memory-info
-make build-project      # required when changing CODEX_FEATURE_MEMORIES
-make recreate-agent     # or make build-serena && make up-serena
-make remote-start       # only if Remote Control is needed
+make memory-info     # print exact resolved paths (no credentials)
+make up              # creates both missing directories before starting
+make recreate-agent  # deploy updated mount if agent already existed
+make remote-start    # only for Remote Control
 ```
 
-The selected Codex state volume is uniquely derived from
-`COMPOSE_PROJECT_NAME` and the **real absolute path of PROJECT_DIR** when
-no explicit override is set. Changing PROJECT_DIR chooses a different
-volume; using the same `CODEX_STATE_VOLUME` with two different
-projects causes an explicit startup error. The identity marker lives
-*inside* the persistent volume, so deleting a local `.state` directory
-does not bypass the guard.
+`make offline` and `make up-serena` also prepare the directories.
+The `volumes/` tree is gitignored. **Do not commit or share it**:
+it includes Codex authentication and session history.
 
-**A named volume survives container deletion and image rebuilding**,
-but is not a backup: disk loss or `make reset-state` can delete it.
-For valuable memories, regularly back up the volume while Codex is
-fully stopped (do not copy live SQLite files while the daemon writes).
+Named volumes are **still supported for compatibility**. When
+`CODEX_STATE_VOLUME` is a bare name without a slash or leading
+`.` (for example `isolated-agent-demo_codex-state`), that exact
+existing Podman named volume is used; the equivalent behavior applies
+to `SERENA_STATE_VOLUME`. An explicit host path uses a bind mount.
+
+The startup identity marker refuses accidental reuse of memory belonging
+to another project, including when the user explicitly supplies the
+same host base directory to different projects. Files are never
+automatically deleted. Switching `PROJECT_DIR` selects a new child
+folder; the previous folder remains on disk.
+
+Container deletion, image rebuilding and ordinary Compose `down`
+do not delete these directories. They **are not automatic backups**:
+for valuable state, stop Codex before copying the entire directory
+(including SQLite database and WAL files), and store encrypted backups
+outside the source checkout.
 
 ## Upgrading an existing Codex volume
 
-**Do not run `make reset-state`.** The old default volume usually has
-the name `<COMPOSE_PROJECT_NAME>_codex-state`. The new automatic
-per-project name is different. We deliberately **do not** automatically
-copy its auth/history/memories to arbitrary new repositories.
+**Do not run `make reset-state`.** Existing setups used a Podman
+named volume such as `<COMPOSE_PROJECT_NAME>_codex-state`. Switching
+straight to the new default local directory will start with an empty
+Codex home: **the old auth and memories are not deleted**, but they
+are not automatically copied either.
 
-To keep the existing Codex state for the *same* repository:
+To preserve the previous Codex sessions and login with zero migration
+risk, explicitly keep the old volume name in `.env`:
 
-1. Finish all active Codex sessions and stop Remote Control.
-2. Inspect existing volumes with `podman volume ls` and identify the
-   old Codex volume name for the correct project. Save a backup using
-   `podman volume export <old-volume> --output backup.tar` while Codex
-   is stopped.
-3. In `.env`, set `CODEX_STATE_VOLUME=<old-volume>`. If using Serena,
-   optionally set `SERENA_STATE_VOLUME=<old-serena-volume>`.
-4. For the **first** container start only, set
-   `CODEX_BIND_EXISTING_STATE=true` (and
-   `SERENA_BIND_EXISTING_STATE=true` if a pre-populated Serena volume
-   is being adopted). This explicitly claims the old volume for the
-   currently selected PROJECT_DIR. It refuses to overwrite any data.
-5. Run `make build-project && make recreate-agent` for the baseline,
-   or `make build-project && make build-serena && make up-serena` for
-   Serena. After successful startup, reset the
-   `*_BIND_EXISTING_STATE` variables to `false` / comment them
-   out. The volume's identity marker now prevents other PROJECT_DIR
-   values from reusing that memory.
-6. Verify `make doctor` and inspect the state without printing auth:
+```dotenv
+CODEX_STATE_VOLUME=isolated-agent-demo_codex-state
+CODEX_BIND_EXISTING_STATE=true
+# Optional if you also use an old Serena named volume:
+# SERENA_STATE_VOLUME=isolated-agent-demo_serena-state
+# SERENA_BIND_EXISTING_STATE=true
+```
 
-   ```bash
-   make memory-info
-   bash scripts/compose.sh exec agent sh -c 'test -w "$CODEX_HOME" && echo writable'
-   ```
+Before the first start, confirm the real name with `podman volume ls`,
+stop Codex and Remote Control, and export a backup using
+`podman volume export <volume-name> --output backup.tar`.
 
-If you want a **fresh, separate** project instead, leave
-`CODEX_STATE_VOLUME` unset and the new project receives its own volume.
-The old volume is retained; nothing is deleted. If you change the
-repository path but intend to migrate its memories, export/import the
-volume after reviewing the provenance. Never point multiple
-concurrently running agents at one Codex SQLite volume.
+Run `make build-project && make recreate-agent` (or rebuild
+the Serena image and use `make up-serena`). Once the identity marker
+has been written, change `CODEX_BIND_EXISTING_STATE` back to
+`false`. Your old named volume and its entire contents are retained.
+
+To **move** old memory into the new repository-local bind directory
+instead, stop the Codex container, back up/export the old volume,
+copy its entire contents into the `make memory-info` Codex directory
+while preserving permissions, and use
+`CODEX_BIND_EXISTING_STATE=true` **once** to claim the pre-populated
+directory. Do not extract an untrusted archive or move only the
+`memories/` folder: the related SQLite state may live elsewhere.
+Verify authentication, sessions and native memories before deleting
+any old volume.
+
+`SERENA_STATE_VOLUME` only concerns **global** Serena state:
+project-level Serena memories remain in
+`PROJECT_DIR/.serena/memories/` and are preserved with that workspace.
 
 ## Default autonomous profile
 
