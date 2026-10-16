@@ -3,8 +3,12 @@
 services:
   agent:
     image: ${SERENA_IMAGE:-localhost/isolated-agent-serena:dev}
+    environment:
+      SERENA_PROJECT_KEY: ${CODEX_PROJECT_KEY:-}
+      SERENA_BIND_EXISTING_STATE: ${SERENA_BIND_EXISTING_STATE:-false}
     volumes:
       - serena-state:/root/.serena
 
 volumes:
   serena-state:
+    name: ${SERENA_STATE_VOLUME:-isolated-agent-serena-unconfigured}
