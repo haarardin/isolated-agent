@@ -8,12 +8,23 @@ PROJECT_DIR ?= ./workspace
 # A canonical-project-path fingerprint prevents state/history/long-term-memory
 # from leaking when PROJECT_DIR changes under the same Compose project name.
 CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --field key)
-CODEX_STATE_VOLUME ?= isolated-agent-codex-$(CODEX_PROJECT_KEY)
-SERENA_STATE_VOLUME ?= isolated-agent-serena-$(CODEX_PROJECT_KEY)
+# Default: host bind directories under the isolated-agent repository root.
+# Each base directory receives a source-project fingerprint subdirectory.
+# A bare name (no slash) still selects a legacy Podman named volume.
+CODEX_STATE_VOLUME ?= ./volumes/codex
+SERENA_STATE_VOLUME ?= ./volumes/serena
+CODEX_STATE_MOUNT_TYPE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field mount-type)
+CODEX_STATE_MOUNT_SOURCE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field mount-source)
+CODEX_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field named-volume)
+SERENA_STATE_MOUNT_TYPE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field mount-type)
+SERENA_STATE_MOUNT_SOURCE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field mount-source)
+SERENA_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field named-volume)
 # Explicit, one-time opt-in only for a pre-existing, unbound volume.
 CODEX_BIND_EXISTING_STATE ?= false
 SERENA_BIND_EXISTING_STATE ?= false
 export PROJECT_DIR CODEX_PROJECT_KEY CODEX_STATE_VOLUME SERENA_STATE_VOLUME
+export CODEX_STATE_MOUNT_TYPE CODEX_STATE_MOUNT_SOURCE CODEX_NAMED_VOLUME
+export SERENA_STATE_MOUNT_TYPE SERENA_STATE_MOUNT_SOURCE SERENA_NAMED_VOLUME
 export CODEX_BIND_EXISTING_STATE SERENA_BIND_EXISTING_STATE
 AGENT_SUBNET ?= auto
 # Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
@@ -55,7 +66,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -104,8 +115,8 @@ help:
 memory-info:
 	@printf 'Project path:         %s\n' "$(abspath $(PROJECT_DIR))"
 	@printf 'Project key:          %s\n' "$(CODEX_PROJECT_KEY)"
-	@printf 'Codex CODEX_HOME:     %s -> /root/.codex\n' "$(CODEX_STATE_VOLUME)"
-	@printf 'Serena global state:  %s -> /root/.serena\n' "$(SERENA_STATE_VOLUME)"
+	@printf 'Codex (%s):        %s -> /root/.codex\n' "$(CODEX_STATE_MOUNT_TYPE)" "$(CODEX_STATE_MOUNT_SOURCE)"
+	@printf 'Serena (%s):       %s -> /root/.serena\n' "$(SERENA_STATE_MOUNT_TYPE)" "$(SERENA_STATE_MOUNT_SOURCE)"
 	@printf '%s\n' 'Serena project memories remain in PROJECT_DIR/.serena/memories/'
 
 preflight:
@@ -118,7 +129,10 @@ network-info:
 network-ensure: preflight
 	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
-prepare-web: network-ensure
+prepare-state:
+	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)"
+
+prepare-web: network-ensure prepare-state
 	@bash scripts/prepare-web.sh
 
 doctor:
@@ -267,17 +281,17 @@ up-example: prepare-web
 	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
 
-offline: network-ensure
+offline: network-ensure prepare-state
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE) up -d agent
 
-offline-example: network-ensure
+offline-example: network-ensure prepare-state
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
 
-offline-serena: network-ensure
+offline-serena: network-ensure prepare-state
 	@bash scripts/remove-service.sh squid
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_OFFLINE_SERENA) up -d agent
