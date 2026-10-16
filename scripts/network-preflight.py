@@ -96,7 +96,7 @@ def verify_existing(network: dict, project: str, requested: str, chosen: str | N
     # Old project-owned networks carry owner labels. A DIFFERENT Compose
     # project may join only when it explicitly sets AGENT_NETWORK_NAME.
     # Implicit project-derived names still reject foreign ownership.
-    if chosen is None:
+    if chosen is None or chosen == project + "_isolated-dev":
         for label in (MANAGED_LABEL, "io.podman.compose.project", "com.docker.compose.project"):
             if label in labels and labels[label] != project:
                 raise ValueError(f"Existing network {name!r} belongs to {labels[label]!r}, not {project!r}")
@@ -115,7 +115,7 @@ def choose_subnet(networks: list[dict], project: str, requested: str, previous: 
         if candidate.version != 4:
             raise ValueError("AGENT_SUBNET must be IPv4")
         if find_collisions(networks, str(candidate), network_name(project, chosen)):
-            raise ValueError("; ".join(find_collisions(networks, str(candidate), network_name(project))))
+            raise ValueError("; ".join(find_collisions(networks, str(candidate), network_name(project, chosen))))
         return str(candidate)
     # Prefer the last assigned subnet when the network was intentionally
     # removed. Otherwise select a stable hash start, avoiding all existing
@@ -130,7 +130,7 @@ def choose_subnet(networks: list[dict], project: str, requested: str, previous: 
     index = zlib.crc32(network_name(project, chosen).encode("utf-8")) % len(SUBNETS)
     for offset in range(len(SUBNETS)):
         candidate = SUBNETS[(index + offset) % len(SUBNETS)]
-        if not find_collisions(networks, str(candidate), network_name(project)):
+        if not find_collisions(networks, str(candidate), network_name(project, chosen)):
             return str(candidate)
     raise ValueError(f"No unused /24 subnet in {POOL}; set an unused AGENT_SUBNET explicitly")
 
