@@ -64,11 +64,13 @@ jobs:
               assert not sv.get('privileged',False)
               assert not sv.get('network_mode')
               codex_home=next(v for v in sv['volumes'] if v['target']=='/root/.codex')
-              assert codex_home['source']==f"isolated-agent-codex-{__import__('os').environ['CODEX_PROJECT_KEY']}",name
+              assert codex_home['source']=='codex-state',name
+              assert conf['volumes']['codex-state']['name']==f"isolated-agent-codex-{__import__('os').environ['CODEX_PROJECT_KEY']}",name
               assert sv['environment']['CODEX_PROJECT_KEY']==__import__('os').environ['CODEX_PROJECT_KEY'],name
               if name=='serena':
                   serena_home=next(v for v in sv['volumes'] if v['target']=='/root/.serena')
-                  assert serena_home['source']==f"isolated-agent-serena-{__import__('os').environ['CODEX_PROJECT_KEY']}"
+                  assert serena_home['source']=='serena-state'
+                  assert conf['volumes']['serena-state']['name']==f"isolated-agent-serena-{__import__('os').environ['CODEX_PROJECT_KEY']}"
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
               # The image contains /root/Documents -> /workspace; ensure
               # no second host mount sneaks into any Compose profile.
