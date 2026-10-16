@@ -73,12 +73,19 @@ verification below.
    a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.
 
+   Persistent state is stored by default in
+   `isolated-agent/volumes/codex/<project-key>` and
+   `isolated-agent/volumes/serena/<project-key>`. The folders are
+   created automatically at startup; no manual `mkdir` is needed.
+   The `.env.example` defaults are `CODEX_STATE_VOLUME=./volumes/codex`
+   and `SERENA_STATE_VOLUME=./volumes/serena`.
+
 3. **Check dependencies, scripts and network topology.**
 
    ```bash
    make network-static
    make preflight           # plan: no changes to Podman networks
-   make memory-info         # shows project-specific memory volume names
+   make memory-info         # shows effective local memory storage directories
    make network-info        # show planned or reusable configured network
    ```
 
@@ -157,7 +164,7 @@ verification below.
 ## B. Upgrade an existing agent (images and persistent data already present)
 
 If you need to preserve Codex authentication/history from an existing
-installation, **first bind the old volume** as described in
+installation, **first select or export the old named volume** as described in
 [Codex volume migration](codex-config.md#upgrading-an-existing-codex-volume).
 Do not silently switch to a fresh empty CODEX_STATE_VOLUME.
 
