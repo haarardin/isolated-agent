@@ -9,7 +9,7 @@ python3 - <<'PY'
 import ipaddress, json, os, pathlib
 state = json.loads(pathlib.Path(".state/network.json").read_text())
 project = os.environ.get("COMPOSE_PROJECT_NAME") or "isolated-agent-demo"
-if state["project"] != project or state["name"] != project + "_isolated-dev":
+if state["project"] != project or state["name"] != (os.environ.get("AGENT_NETWORK_NAME") or project + "_isolated-dev"):
     raise SystemExit("Network state does not belong to this Compose project")
 net = ipaddress.ip_network(state["subnet"], strict=True)
 if net.version != 4:

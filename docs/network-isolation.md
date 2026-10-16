@@ -5,61 +5,81 @@ pair an Android device, see
 [REMOTE-START.md](REMOTE-START.md). The network migration below is
 **conditional**, not part of a fresh installation.
 
-## Network per Compose project: create or safely reuse
+## Separate Compose and network identities
 
-Every deployment has a **stable, project-specific internal network name**:
+`COMPOSE_PROJECT_NAME` names a deployment's containers and persistent
+volumes. **`AGENT_NETWORK_NAME` separately names its Podman bridge.**
+Leave the latter unset for the previous default
+`<COMPOSE_PROJECT_NAME>_isolated-dev`.
 
-```text
-<COMPOSE_PROJECT_NAME>_isolated-dev
-```
+Two trusted projects can set **the same network name**:
 
-For example, `ai-orders_isolated-dev` and
-`ai-billing_isolated-dev` are **two different** Podman networks.
-Use a distinct `COMPOSE_PROJECT_NAME` for each independent project:
-otherwise the same name intentionally means the same network **and the
-same Compose-scoped named volumes**.
-
-`AGENT_SUBNET=auto` is the default. Before starting any containers:
-
-1. `make preflight` inspects Podman networks **without modifying them**.
-2. `make network-ensure` searches for the expected name.
-3. If the name exists, it validates `internal: true`, bridge driver,
-   IPv4-only configuration, project labels (if present), and the subnet.
-   A valid network is **reused**. A foreign, unrestricted or mismatched
-   network causes an error, not silent attachment.
-4. If missing, it selects a free `/24` from `10.203.0.0/16` using a
-   stable project-name hash and collision checks, then creates the
-   network with rootless `podman network create --internal`.
-5. The chosen network and CIDR are saved in ignored
-   `.state/network.json`; Squid's source ACL is generated from the
-   **actual** network subnet, not from a hardcoded default.
-
-```bash
-# .env: independent project identity and automatic subnet:
-COMPOSE_PROJECT_NAME=ai-orders
+```dotenv
+# Checkout A
+COMPOSE_PROJECT_NAME=codex-api
+AGENT_NETWORK_NAME=team-development
 AGENT_SUBNET=auto
 
-make network-info      # check plan/existing network; does NOT create
-make network-ensure    # create if missing, reuse if it exists safely
-make up                # also calls network-ensure automatically
-podman network inspect ai-orders_isolated-dev
+# Checkout B
+COMPOSE_PROJECT_NAME=codex-sip
+AGENT_NETWORK_NAME=team-development
+AGENT_SUBNET=auto
 ```
 
-For a specific subnet, set `AGENT_SUBNET=10.210.31.0/24` and rerun
-preflight. This **does not move** an already created network: if its
-CIDR differs, startup fails until you intentionally migrate or change
-the configuration. The auto-allocator only inspects **Podman** networks;
-also check host LAN/VPN routes separately and choose a non-overlapping
-explicit CIDR if necessary.
+Both connect to `team-development`, while the Compose containers and
+named volumes remain independent. Each checkout's ignored
+`.state/network.json` records that same network name and CIDR.
 
-The `isolated-dev` network is `external: true` in Compose: **Compose
-does not own its lifecycle**. `make down` and normal container
-recreation leave it intact for other explicitly attached containers.
-There is no automatic deletion just because the agent stops.
-`outbound` remains a separate Compose-managed network for Squid only.
-A shared network has shared L2/L3 access for attached containers;
-never connect independent/untrusted project containers to it merely
-because a name matches.
+The startup sequence:
+
+1. `make preflight` and `make network-info` inspect existing networks
+   without changing them.
+2. `make network-ensure` searches by **AGENT_NETWORK_NAME**.
+3. If present, it validates internal-only IPv4 bridge settings, CIDR and
+   applicable provenance labels; an explicitly named shared network
+   may carry the other project's legacy owner label.
+4. If absent, it selects a free `/24` from `10.203.0.0/16` with
+   `AGENT_SUBNET=auto` (or validates an explicit unused CIDR), creates
+   the network and stores its CIDR locally.
+5. `make up` / `make offline` call `make network-ensure`; the internal
+   network is declared `external: true`, so Compose `down` preserves it.
+
+```bash
+make network-info
+make network-ensure
+make up
+make network-check
+podman network inspect team-development
+```
+
+**Security consequence:** a shared network is a shared *trust zone*,
+not isolation between projects. Member containers can contact listening
+services belonging to other projects. Squid's denylist protects
+outbound traffic via Squid, not cross-project bridge traffic.
+Service-name DNS aliases such as `postgres`, `redis`, and `squid`
+may be ambiguous on the shared network. Agent traffic uses a unique
+`<COMPOSE_PROJECT_NAME>-egress` alias; example database clients use
+`<COMPOSE_PROJECT_NAME>-postgres` and
+`<COMPOSE_PROJECT_NAME>-redis`. Trust all network members.
+
+### Switching an existing project to a shared network
+
+After updating `.env` with the new AGENT_NETWORK_NAME:
+
+```bash
+make network-info
+make network-ensure
+make up
+make recreate-agent    # apply changed network and proxy environment
+make network-check
+make remote-start      # restart managed daemon after agent recreation
+```
+
+Serena users should replace `make recreate-agent` with
+`make up-serena`. Old external networks and named volumes are not
+deleted when changing the name. `make migrate-network` is only for
+migrating the former insecure project-named network, and is **not**
+the way to switch to a shared network.
 
 ## Topology
 
@@ -73,7 +93,7 @@ Codex agent (internal-only network, AGENT_SUBNET)
                 Internet
 ```
 
-Only Squid is dual-homed. `compose.yaml` has `internal: true`
+Only Squid is dual-homed. The host-provisioned network is `internal: true`
 with the project's resolved `AGENT_SUBNET`; `compose.web.yaml` adds Squid
 and outbound network. The internal network is prepared by a host script
 and declared `external: true` in Compose, so the `internal` property
@@ -99,8 +119,8 @@ ports. This widens egress and must be reviewed for production.
 A forwarded request to a private endpoint is denied even when the
 client tries HTTP CONNECT.
 
-`AGENT_SUBNET` defaults to `auto`, not a shared fixed CIDR. A fresh
-project receives a unique free `/24` from the allocation pool.
+`AGENT_SUBNET` defaults to `auto`, not a fixed CIDR. A new network gets
+an unused `/24`; an existing same-named network keeps its original CIDR.
 `scripts/network-preflight.py` checks overlaps and validates reuse.
 Never silently attach to an older unrestricted same-name network.
 

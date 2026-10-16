@@ -13,10 +13,10 @@ services:
       GOCACHE: /root/.cache/go-build
       GOMODCACHE: /root/.cache/go-mod
       GOPATH: /root/.cache/go
-      HTTP_PROXY: http://squid:3128
-      HTTPS_PROXY: http://squid:3128
-      http_proxy: http://squid:3128
-      https_proxy: http://squid:3128
+      HTTP_PROXY: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      HTTPS_PROXY: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      http_proxy: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
+      https_proxy: http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128
       NO_PROXY: localhost,127.0.0.1,::1,postgres,redis
       no_proxy: localhost,127.0.0.1,::1,postgres,redis
     volumes:
@@ -38,12 +38,12 @@ services:
 volumes:
   codex-state:
   agent-cache:
-# The host-side preflight creates this project-specific network, or validates
+# The host-side preflight creates the configured internal network, or validates
 # and reuses the existing one. External ownership prevents compose down from
 # deleting it while other services may still be attached.
 networks:
   isolated-dev:
-    name: ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}_isolated-dev
+    name: ${AGENT_NETWORK_NAME:-isolated-agent-demo_isolated-dev}
     external: true
 x-podman:
   in_pod: false

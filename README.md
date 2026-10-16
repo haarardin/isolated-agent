@@ -181,19 +181,39 @@ Stop the environment:
 make down
 ```
 
-## Dedicated, reusable network for each project
+## Independent network name and shared networks
 
-Each `COMPOSE_PROJECT_NAME` receives its own isolated Podman network
-`<project>_isolated-dev`. A new network is created automatically
-before `make up`; an existing network of the same name is **reused
-only after verifying internal isolation, CIDR and ownership labels**.
-`AGENT_SUBNET=auto` avoids IP collisions between independent
-projects, while `make network-info` shows the selected/existing subnet.
+Two independent Compose projects can intentionally join **one existing
+internal Podman network** without sharing their Codex sessions or named volumes:
 
-The network is marked `external: true` in Compose, so
-`make down` leaves it in place. The agent never joins Squid's outbound
-network. For details, explicit CIDRs and legacy migration, see
-[network isolation](docs/network-isolation.md).
+```dotenv
+# Project A
+COMPOSE_PROJECT_NAME=codex-api
+AGENT_NETWORK_NAME=ai-development
+AGENT_SUBNET=auto
+
+# Project B (separate checkout and .env)
+COMPOSE_PROJECT_NAME=codex-sip
+AGENT_NETWORK_NAME=ai-development
+AGENT_SUBNET=auto
+```
+
+`COMPOSE_PROJECT_NAME` scopes containers, sessions, cache and DB
+volumes. **`AGENT_NETWORK_NAME` selects the network independently.**
+If omitted, the previous default remains:
+`<COMPOSE_PROJECT_NAME>_isolated-dev`.
+
+`make network-info` checks the configured network, and
+`make network-ensure` creates it if missing or validates and reuses
+a same-named internal network. `make up` invokes that automatically.
+Compose `down` does not delete the external internal network.
+
+Each project's Squid receives a unique DNS alias such as
+`codex-api-egress` or `codex-sip-egress`. A **shared network grants
+reachability between its member containers** and is suitable only
+for mutually trusted projects.
+
+See [network identity and sharing](docs/network-isolation.md).
 
 ## Start Codex Remote Control from Android
 

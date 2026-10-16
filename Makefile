@@ -5,9 +5,11 @@ endif
 
 COMPOSE_PROJECT_NAME ?= isolated-agent-demo
 AGENT_SUBNET ?= auto
+# Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
+AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev
 BLOCK_CIDRS ?=
 SQUID_IMAGE ?= docker.io/ubuntu/squid:6.6-24.04_edge
-export COMPOSE_PROJECT_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
+export COMPOSE_PROJECT_NAME AGENT_NETWORK_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
 PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml
@@ -89,13 +91,13 @@ help:
 
 preflight:
 	@bash scripts/preflight.sh
-	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --state .state/network.json
+	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 network-info:
-	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --state .state/network.json
+	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 network-ensure: preflight
-	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --state .state/network.json
+	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 prepare-web: network-ensure
 	@bash scripts/prepare-web.sh

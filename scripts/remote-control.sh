@@ -22,6 +22,10 @@ secure_network() {
   local agent_net all squid_id
   all="$(podman inspect "$id" --format '{{json .NetworkSettings.Networks}}')"
   agent_net="$(python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==1,"Codex agent must have one network"; print(next(iter(n)))' "$all")" || return 1
+  if [[ "$agent_net" != "${AGENT_NETWORK_NAME:-${COMPOSE_PROJECT_NAME}_isolated-dev}" ]]; then
+    echo "ERROR: agent attached to unexpected network $agent_net" >&2
+    return 1
+  fi
   if [[ "$(podman network inspect --format '{{.Internal}}' "$agent_net")" != true ]]; then
     echo "ERROR: agent network is NOT internal. Migrate old network with CONFIRM=YES make migrate-network." >&2
     return 1
@@ -89,7 +93,8 @@ case "$mode" in
    python3 -c 'import json,sys; n=json.loads(sys.argv[1]); assert len(n)==1,"agent must have one network"; print("Agent network: "+next(iter(n)))' "$nets"
    # HTTP status may be 403 for anonymous curl even when TLS/CONNECT works.
    # Inspect CONNECT outcome instead of treating an HTTP 403 as network failure.
-   if proxy_connect="$(podman exec "$id" curl -sS --connect-timeout 8 --max-time 15 -x http://squid:3128 -o /dev/null -w '%{http_connect}' https://chatgpt.com/ 2>/dev/null)" && [[ "$proxy_connect" == 200 ]]; then
+   proxy="http://${COMPOSE_PROJECT_NAME}-egress:3128"
+   if proxy_connect="$(podman exec "$id" curl -sS --connect-timeout 8 --max-time 15 --noproxy '' -x "$proxy" -o /dev/null -w '%{http_connect}' https://chatgpt.com/ 2>/dev/null)" && [[ "$proxy_connect" == 200 ]]; then
      echo "OpenAI HTTPS tunnel via Squid: reachable (CONNECT 200)"
    else
      echo "OpenAI HTTPS tunnel: failed (CONNECT status or TLS problem); check Squid/DNS/ACL"

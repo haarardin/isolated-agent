@@ -9,7 +9,10 @@ web=Path("compose.web.yaml").read_text()
 mk=Path("Makefile").read_text()
 remote=Path("scripts/remote-control.sh").read_text()
 assert "external: true" in agent
-assert "name: ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}_isolated-dev" in agent
+assert "name: ${AGENT_NETWORK_NAME:-isolated-agent-demo_isolated-dev}" in agent
+assert "AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev" in mk
+assert '--network-name "$(AGENT_NETWORK_NAME)"' in mk
+assert "io.isolated-agent.network" in Path("scripts/network-preflight.py").read_text()
 assert "network-ensure:" in mk
 assert "scripts/network-preflight.py --ensure" in mk
 netcode = Path("scripts/network-preflight.py").read_text()
@@ -18,6 +21,7 @@ assert '"--subnet"' in netcode
 assert "verify_existing" in netcode
 assert "AGENT_SUBNET ?= auto" in mk
 assert "bash scripts/migrate-network.sh" in mk
+assert "Shared network $AGENT_NETWORK_NAME will not be removed" in Path("scripts/migrate-network.sh").read_text()
 assert "ipv6_enabled" in netcode and "IPv6Enabled" in netcode
 assert "internal: true" not in agent  # validated in actual Podman inspect
 assert "ipam:" not in agent  # managed per-project by network-ensure
@@ -40,7 +44,9 @@ assert "/root/Documents:" not in agent, "Do not introduce extra host mounts"
 
 assert "cap_drop:\n      - ALL" in agent
 assert "in_pod: false" in agent
-assert "      - outbound" in web and "      - isolated-dev" in web
+assert "outbound: {}" in web and "isolated-dev:" in web
+assert "${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress" in web
+assert "http://${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress:3128" in agent
 assert "podman network rm" in Path("scripts/migrate-network.sh").read_text()
 assert "http_access deny blocked_dst" in Path("config/squid.conf").read_text()
 assert "http_access deny !sandbox_clients" in Path("config/squid.conf").read_text()
@@ -73,10 +79,10 @@ for value, success in [("YES", True), ("NO", False)]:
 # Testing Squid against 127.0.0.1 must *force* use of Squid, not loopback.
 checks=Path("scripts/network-check.sh").read_text()
 proxied=[line for line in checks.splitlines()
-         if 'podman exec' in line and 'curl ' in line and '-x http://squid:3128' in line]
+         if 'podman exec' in line and 'curl ' in line and '-x "$proxy"' in line]
 assert len(proxied)==4, f"Expected offline/public/deny/CONNECT proxy probes: {proxied!r}"
 for command in proxied:
-    assert "curl " in command and "--noproxy '' -x http://squid:3128" in command, command
+    assert "curl " in command and """--noproxy '' -x "$proxy" """ in (command + " "), command
 direct=[line for line in checks.splitlines()
         if 'podman exec' in line and 'curl ' in line and "--noproxy '*'" in line]
 assert len(direct)==2, f"Direct routing probes must bypass the proxy: {direct!r}"

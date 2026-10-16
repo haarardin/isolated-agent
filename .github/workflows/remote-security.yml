@@ -25,6 +25,7 @@ jobs:
           # Docker Compose derives its default project name from the checkout
           # directory. Override that to match the explicit test fixture.
           export COMPOSE_PROJECT_NAME=isolated-agent-demo
+          export AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
@@ -53,6 +54,7 @@ jobs:
               internal_net=conf['networks']['isolated-dev']
               assert internal_net['external'] is True,internal_net
               assert internal_net['name']=='isolated-agent-demo_isolated-dev',internal_net
+              assert sv['environment']['HTTP_PROXY']=='http://isolated-agent-demo-egress:3128',name
               assert sv['read_only'] is True
               assert sv['cap_drop']==['ALL']
               assert not sv.get('ports')
@@ -71,6 +73,7 @@ jobs:
               assert 'squid' in conf['services']
               assert set(conf['services']['squid']['networks'])=={'isolated-dev','outbound'}
               assert not conf['services']['squid'].get('ports')
+              assert 'isolated-agent-demo-egress' in conf['services']['squid']['networks']['isolated-dev']['aliases']
           assert set(example['services'])=={'agent','postgres','redis','squid'}
           for s in ('postgres','redis'):
               assert set(example['services'][s]['networks'])=={'isolated-dev'}
@@ -78,6 +81,20 @@ jobs:
           assert serena['services']['agent']['image'].endswith('isolated-agent-serena:dev')
           print('All Compose security profiles validated')
           PY
+          # A different Compose project intentionally shares the network but
+          # uses its own unique Squid DNS alias and independent service IDs.
+          COMPOSE_PROJECT_NAME=other-project AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev \
+            docker compose -f compose.yaml -f compose.web.yaml config --format json > /tmp/shared.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/shared.json'))
+          assert x['networks']['isolated-dev']['name']=='isolated-agent-demo_isolated-dev'
+          assert x['services']['agent']['environment']['HTTP_PROXY']=='http://other-project-egress:3128'
+          assert 'other-project-egress' in x['services']['squid']['networks']['isolated-dev']['aliases']
+          assert x['services']['agent']['networks'] == {'isolated-dev': None} or set(x['services']['agent']['networks']) == {'isolated-dev'}
+          print('Separate Compose projects can share a network without ambiguous proxy alias')
+          PY
+
       - name: Squid ACL syntax check with generated CIDRs
         run: |
           docker run --rm --network none --entrypoint /usr/sbin/squid \

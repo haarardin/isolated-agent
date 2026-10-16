@@ -9,6 +9,11 @@ This is an opt-in mode for the **official Codex CLI** already installed in
 this repository. No desktop GUI, Linux `.deb`, host SSH agent, systemd in
 the container or incoming TCP listener is required.
 
+For a shared network, set `AGENT_NETWORK_NAME` separately from
+`COMPOSE_PROJECT_NAME`. Remote Control uses the current project's
+own `<COMPOSE_PROJECT_NAME>-egress` proxy alias. See
+[network identity and sharing](network-isolation.md).
+
 Source of truth: [Codex developer commands](https://learn.chatgpt.com/docs/developer-commands)
 and [managed app-server daemon](https://github.com/openai/codex/blob/main/codex-rs/app-server-daemon/README.md).
 Both CLI features and mobile pairing availability may change with releases.

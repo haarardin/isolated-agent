@@ -51,3 +51,14 @@ and workspace-dependent; see [remote-control.md](remote-control.md).
 Maintain separate Podman Compose project names/networks/subnets and
 do not bind other projects' Codex auth volumes or Postgres data
 directories across concurrent containers.
+
+## Shared internal networks
+
+A network selected by `AGENT_NETWORK_NAME` can be used by multiple
+independent Compose projects. Their Codex credentials, named volumes and
+container names remain separate because they use distinct
+`COMPOSE_PROJECT_NAME` values. However, all containers on the shared
+bridge may contact one another's network services: this is **not**
+tenant isolation, and Squid's CIDR restrictions are not a firewall
+between these projects. Trust every project joining the network.
+Use project-qualified DNS aliases for proxy and database endpoints.

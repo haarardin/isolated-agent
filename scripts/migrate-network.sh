@@ -7,6 +7,13 @@ project="${COMPOSE_PROJECT_NAME:-isolated-agent-demo}"
   echo "ERROR: invalid COMPOSE_PROJECT_NAME" >&2; exit 2;
 }
 name="${project}_isolated-dev"
+# Never remove a named shared network. Legacy migration only applies to
+# the project-derived old network and requires explicit confirmation.
+if [[ -n "${AGENT_NETWORK_NAME:-}" && "$AGENT_NETWORK_NAME" != "$name" ]]; then
+  echo "ERROR: migrate-network only handles the legacy project network $name." >&2
+  echo "Shared network $AGENT_NETWORK_NAME will not be removed. Inspect it manually." >&2
+  exit 1
+fi
 echo "Stopping project Compose services without removing named volumes ..."
 bash scripts/compose.sh -f compose.yaml -f compose.web.yaml \
   -f compose.example-services.yaml -f compose.serena.yaml down

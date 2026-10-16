@@ -24,6 +24,53 @@ class ProjectNetworkTests(unittest.TestCase):
         b, _ = mod.resolve([net("backend-a_isolated-dev", a)], "backend-b", "auto", None)
         self.assertNotEqual(a, b)
 
+    def test_two_compose_projects_share_explicit_network_name(self):
+        # First creates with network-scoped label; second reuses with no
+        # change to its own Compose identity or named volumes.
+        chosen = "team-development"
+        subnet, exists = mod.resolve([], "api-one", "auto", None, chosen)
+        self.assertFalse(exists)
+        existing = net(chosen, subnet, labels={mod.NETWORK_LABEL: chosen})
+        reused, exists = mod.resolve([existing], "api-two", "auto", None, chosen)
+        self.assertTrue(exists)
+        self.assertEqual(subnet, reused)
+
+    def test_shared_name_reuses_legacy_project_owned_network(self):
+        existing = net("api-one_isolated-dev", "10.203.44.0/24",
+                       labels={mod.MANAGED_LABEL: "api-one"})
+        subnet, exists = mod.resolve([existing], "api-two", "auto", None,
+                                      "api-one_isolated-dev")
+        self.assertTrue(exists)
+        self.assertEqual(subnet, "10.203.44.0/24")
+
+    def test_legacy_project_owned_network_not_implicitly_shared(self):
+        existing = net("api-one_isolated-dev", "10.203.44.0/24",
+                       labels={mod.MANAGED_LABEL: "another-owner"})
+        with self.assertRaisesRegex(ValueError, "belongs to"):
+            mod.resolve([existing], "api-one", "auto", None)
+
+    def test_unsafe_shared_network_rejected(self):
+        for params in ({"internal": False}, {"driver": "macvlan"}, {"ipv6": True}):
+            with self.subTest(params=params):
+                existing = net("team-development", "10.203.44.0/24", **params)
+                with self.assertRaises(ValueError):
+                    mod.resolve([existing], "api-two", "auto", None,
+                                "team-development")
+
+    def test_custom_network_name_validation(self):
+        with self.assertRaises(ValueError):
+            mod.network_name("api-one", "../../invalid")
+        self.assertEqual(mod.network_name("api-one", "team-development"), "team-development")
+
+    def test_switch_from_private_to_shared_network_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / "network.json"
+            mod.save_state(state, "api-one", "10.203.11.0/24")
+            self.assertIsNone(mod.load_state(state, "api-one", "team-development"))
+            mod.save_state(state, "api-one", "10.203.44.0/24", "team-development")
+            self.assertEqual(mod.load_state(state, "api-one", "team-development"),
+                             "10.203.44.0/24")
+
     def test_reuse_same_project_network_and_cidr(self):
         existing = net("my-project_isolated-dev", "10.203.55.0/24", labels={
             mod.MANAGED_LABEL: "my-project"

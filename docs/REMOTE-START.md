@@ -46,6 +46,8 @@ verification below.
    COMPOSE_PROJECT_NAME=isolated-agent-demo
    PROJECT_DIR=/home/USER/projects/codex-remote-workspace
    AGENT_SUBNET=auto
+   # Optional, only when sharing a trusted network with another project:
+   # AGENT_NETWORK_NAME=team-development
    BLOCK_CIDRS=
    ```
 
@@ -56,9 +58,11 @@ verification below.
    directory or only the repository you intend to grant Codex access to.
    Keep the other `.env` settings from `.env.example`.
 
-   The default `auto` mode allocates a free subnet per project and
+   The default `auto` mode allocates a free subnet per new network and
    safely reuses an existing matching project network. For multiple
-   independent clones, choose distinct `COMPOSE_PROJECT_NAME`;
+   independent clones, choose distinct `COMPOSE_PROJECT_NAME`.
+   Set the same `AGENT_NETWORK_NAME` only for trusted projects that
+   must share a network;
    this also prevents collisions in Compose-named volumes. To select
    a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.

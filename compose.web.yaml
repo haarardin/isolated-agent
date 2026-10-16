@@ -15,8 +15,11 @@ services:
       - ./.state/squid.conf:/etc/squid/squid.conf:ro
       - ./.state/blocked-cidrs.txt:/etc/squid/blocked-cidrs.txt:ro
     networks:
-      - isolated-dev
-      - outbound
+      isolated-dev:
+        # Avoid ambiguous "squid" DNS across Compose projects on a shared network.
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-egress
+      outbound: {}
 networks:
   outbound:
     internal: false
