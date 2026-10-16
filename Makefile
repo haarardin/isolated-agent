@@ -34,15 +34,16 @@ SQUID_IMAGE ?= docker.io/ubuntu/squid:6.6-24.04_edge
 export COMPOSE_PROJECT_NAME AGENT_NETWORK_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
 PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
-COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml
-COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml
-COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.serena.yaml
-COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f compose.serena.yaml
-COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml
-COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.serena.yaml
+COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml
+COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
+COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
+COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
+COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
+COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
+DEPENDENCIES_IMAGE ?= localhost/isolated-agent-dependencies:dev
 PROJECT_IMAGE ?= localhost/isolated-agent-project:dev
 SERENA_IMAGE ?= localhost/isolated-agent-serena:dev
 SERENA_VERSION ?= 1.7.0
@@ -132,7 +133,7 @@ network-ensure: preflight
 prepare-state:
 	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)"
 
-prepare-web: network-ensure prepare-state
+prepare-web: network-ensure prepare-state deps-generate
 	@bash scripts/prepare-web.sh
 
 doctor:
@@ -281,17 +282,17 @@ up-example: prepare-web
 	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
 
-offline: network-ensure prepare-state
+offline: network-ensure prepare-state deps-generate
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE) up -d agent
 
-offline-example: network-ensure prepare-state
+offline-example: network-ensure prepare-state deps-generate
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
 
-offline-serena: network-ensure prepare-state
+offline-serena: network-ensure prepare-state deps-generate
 	@bash scripts/remove-service.sh squid
 	@bash scripts/remove-service.sh agent
 	$(COMPOSE_OFFLINE_SERENA) up -d agent
