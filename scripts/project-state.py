@@ -36,18 +36,51 @@ def volume_name(kind: str, key: str) -> str:
     return f"isolated-agent-{kind}-{key}"
 
 
+
+def storage_spec(setting: str, kind: str, key: str) -> tuple[str, str, str]:
+    """Resolve a host directory BASE or backward-compatible Podman volume name.
+
+    Host storage base e.g. ./volumes/codex -> ./volumes/codex/<project-key>.
+    Explicit legacy named volumes (no slash) keep their original name.
+    The returned third field is the Compose top-level named-volume name.
+    """
+    if kind not in {"codex", "serena"}:
+        raise ValueError("Invalid storage kind")
+    if not setting:
+        raise ValueError(f"Empty {kind} storage setting")
+    if setting.startswith((".", "~", "/")) or "/" in setting:
+        root = Path(setting).expanduser().resolve(strict=False)
+        if not root.is_absolute():
+            raise ValueError(f"{kind} state path must be absolute after resolution")
+        # Deliberately keep all project memory outside the image in a host
+        # directory, one subdirectory per unique source-project identity.
+        return ("bind", str(root / key), volume_name(kind, key))
+    if not VALID.fullmatch(setting):
+        raise ValueError(f"Invalid {kind} named volume {setting!r}")
+    return ("volume", f"{kind}-state", setting)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", required=True)
     parser.add_argument("--compose-project", required=True)
-    parser.add_argument("--field", choices=("key", "codex-volume", "serena-volume"), required=True)
+    parser.add_argument("--field", choices=("key", "codex-volume", "serena-volume",
+                                          "mount-type", "mount-source", "named-volume"), required=True)
+    parser.add_argument("--kind", choices=("codex", "serena"))
+    parser.add_argument("--storage")
     args = parser.parse_args()
     try:
         key = project_key(args.project_dir, args.compose_project)
         if args.field == "key":
             print(key)
-        else:
+        elif args.field.endswith("-volume") and args.field != "named-volume":
             print(volume_name(args.field.removesuffix("-volume"), key))
+        else:
+            if not args.kind or not args.storage:
+                raise ValueError("--kind and --storage are required for mount fields")
+            mount_type, mount_source, named = storage_spec(args.storage, args.kind, key)
+            print({"mount-type": mount_type, "mount-source": mount_source,
+                   "named-volume": named}[args.field])
     except ValueError as exc:
         print(f"ERROR: cannot derive isolated project state: {exc}", file=sys.stderr)
         return 1
