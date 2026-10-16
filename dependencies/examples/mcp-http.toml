@@ -1,0 +1,33 @@
+# Example only: sidecar + external MCP servers.
+[base]
+image = "debian:13-slim"
+[apt]
+packages = []
+
+[[agent_tools]]
+id = "indexer"
+kind = "mcp"
+placement = "sidecar"
+enabled = false
+
+[[agent_tools.install]]
+type = "script"
+file = "install-indexer.sh"
+
+[agent_tools.runtime]
+command = ["/opt/indexer/server", "--port=8787"]
+port = 8787
+
+[agent_tools.integration]
+transport = "http"
+path = "/mcp"
+
+[[agent_tools]]
+id = "remote"
+kind = "mcp"
+placement = "external"
+enabled = false
+
+[agent_tools.integration]
+transport = "http"
+url = "https://mcp.example.org/mcp"
