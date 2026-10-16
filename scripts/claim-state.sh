@@ -31,9 +31,13 @@ if [[ -e "$marker" ]]; then
   }
   exit 0
 fi
-# An old Codex/Serena volume has no marker but already contains user data.
-# It must be explicitly adopted to avoid silent memory contamination.
-if [[ -n "$(find "$root" -mindepth 1 -maxdepth 1 -print -quit)" && "$allow" != true ]]; then
+# New named volumes may be populated with image-provided files by the
+# container engine (volume copy-up). The image-owned one-time seed marker
+# distinguishes this from an existing unbound user data volume.
+seed="$root/.isolated-agent-volume-template"
+[[ ! -L "$seed" ]] || { echo "ERROR: refusing symlink seed marker" >&2; exit 1; }
+if [[ -n "$(find "$root" -mindepth 1 -maxdepth 1 -print -quit)" &&
+      ! -f "$seed" && "$allow" != true ]]; then
   echo "ERROR: existing unbound $component state detected at $root" >&2
   echo "Check it belongs to this project, then temporarily set the corresponding BIND_EXISTING_STATE=true option." >&2
   echo "Set the option back to false afterward. No data has been removed." >&2
@@ -45,3 +49,6 @@ if ! ( set -C; printf '%s\n' "$key" > "$marker" ) 2>/dev/null; then
   echo "ERROR: $component state volume was concurrently claimed; retry/inspect" >&2
   exit 1
 fi
+# Never leave the seed marker in a claimed volume: if the binding marker
+# is later removed, the populated data must not be adopted silently.
+rm -f "$seed"
