@@ -40,8 +40,9 @@ RUN test ! -e /root/Documents && test ! -L /root/Documents \
 
 COPY ${CODEX_AGENTS_FILE} /opt/isolated-agent/AGENTS.md
 COPY images/project/entrypoint.sh /usr/local/bin/isolated-agent-entrypoint
+COPY scripts/claim-state.sh /usr/local/bin/isolated-agent-claim-state
 
-RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint \
+RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint /usr/local/bin/isolated-agent-claim-state \
     && mkdir -p /etc/codex /opt/isolated-agent \
     && { \
       if [ -n "${CODEX_MODEL}" ]; then printf 'model = "%s"\n' "${CODEX_MODEL}"; fi; \
