@@ -44,10 +44,12 @@ COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
 DEPENDENCIES_IMAGE ?= localhost/isolated-agent-dependencies:dev
-PROJECT_IMAGE ?= localhost/isolated-agent-project:dev
-SERENA_IMAGE ?= localhost/isolated-agent-serena:dev
+PROJECT_IMAGE ?= localhost/isolated-agent-project-$(CODEX_PROJECT_KEY):dev
+SERENA_IMAGE ?= localhost/isolated-agent-serena-$(CODEX_PROJECT_KEY):dev
 SERENA_VERSION ?= 1.7.0
 SERENA_GOPLS_VERSION ?= v0.20.0
+# Prevent different projects on one host from sharing a baked MCP config image.
+export PROJECT_IMAGE SERENA_IMAGE
 
 PROJECT_APT_PACKAGES ?=
 CODEX_AGENTS_FILE ?= templates/AGENTS.global.md
