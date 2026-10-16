@@ -27,6 +27,13 @@ type = "command"
 run = "GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@v0.20.0"
 verify = ["gopls version"]
 
+# Global Serena runtime state remains in the usual project-local
+# volumes/serena/<project-key> directory. Project memories stay under
+# PROJECT_DIR/.serena/memories/.
+[agent_tools.state]
+base = "./volumes/serena"
+target = "/root/.serena"
+
 [agent_tools.integration]
 transport = "stdio"
 command = "/opt/agent-tools/serena/bin/serena"
