@@ -61,6 +61,25 @@ class DependencyTests(unittest.TestCase):
             self.assertNotIn("privileged:", compose)
             self.assertIn("BASE_IMAGE", (out / "Containerfile.tool-index").read_text())
 
+    def test_generic_embedded_tool_state_is_persistent_and_scoped(self):
+        tool = {"id": "helper", "placement": "embedded", "kind": "mcp",
+                "integration": {"transport": "stdio", "command": "/usr/local/bin/helper"},
+                "state": {"base": "./volumes/tools/helper", "target": "/root/.helper"}}
+        cfg = {"apt": {"packages": []}, "agent_tools": [tool]}
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(deps, "ROOT", Path(td)), mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "example"}):
+                deps.prepare_tool_state(cfg)
+                state = deps.state_dir(tool, "example")
+                self.assertTrue(state.is_dir())
+                (state / "memory.txt").write_text("preserved")
+                deps.prepare_tool_state(cfg)
+                self.assertEqual((state / "memory.txt").read_text(), "preserved")
+                out = Path(td) / ".generated"
+                deps.generate(cfg, out)
+                compose = (out / "compose.tools.yaml").read_text()
+                self.assertIn("agent:", compose)
+                self.assertIn("/root/.helper:rw", compose)
+
     def test_reject_apt_shell_injection(self):
         with self.assertRaises(ValueError):
             deps.check_step({"type": "apt", "packages": ["curl;rm -rf /"]}, "apt")
