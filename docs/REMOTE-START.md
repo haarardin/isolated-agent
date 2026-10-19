@@ -18,20 +18,20 @@ verification below.
 
 ## A. First installation (new Compose project)
 
-1. **Get the feature branch and create a local config.** If you already
-   have a clone, enter it; otherwise clone the repository first.
+1. **Use a checkout containing these Make targets and create local config.**
+   On an existing checkout, stay on its intended release/PR branch;
+   the former `feature/remote-control-network-isolation` branch is not
+   the current project state.
 
    ```bash
    git clone https://github.com/haarardin/isolated-agent.git
    cd isolated-agent
-   git fetch origin
-   git switch --track origin/feature/remote-control-network-isolation
+   # For an unmerged PR, check out its feature branch before proceeding.
    cp -n .env.example .env
    ```
 
-   If the tracking branch already exists locally, use
-   `git switch feature/remote-control-network-isolation` and
-   `git pull --ff-only` instead.
+   For an upgrade, use `git pull --ff-only` on the selected branch.
+   Do not replace an existing `.env` or legacy Podman named volume.
 
 2. **Choose what the remote agent may edit.**
 
@@ -89,7 +89,8 @@ verification below.
    make network-info        # show planned or reusable configured network
    ```
 
-   Requirements: rootless Podman, explicit `podman-compose`, Python 3,
+   Requirements: rootless Podman, explicit `podman-compose`,
+   **Python 3.11+** on the host (the generator uses stdlib `tomllib`),
    GNU Make, Git and access to the official Codex CLI installer for
    the image build. The preflight must succeed before the next step.
    If it rejects an **existing same-project network because it is
@@ -101,7 +102,7 @@ verification below.
    the network.**
 
    ```bash
-   make build             # base + official Codex CLI + project image
+   make build             # Base + Codex CLI + Dependencies + Project
    make up                # agent plus dual-homed filtered Squid
    make ps
    make doctor
@@ -174,7 +175,7 @@ PR #6 revision, especially one that fails with
 
 ```bash
 # From the existing isolated-agent checkout; finish/save active tasks first.
-git switch feature/remote-control-network-isolation
+# Stay on the branch containing the current PR/release.
 git pull --ff-only
 make network-static
 make preflight
@@ -239,14 +240,19 @@ installation) or `Project network reused`, **skip migration**.
 ## D. Regular use after an agent restart/recreation
 
 ```bash
-make up                # filtered online environment (not offline)
-make remote-start      # the daemon is a process, not a persistent service
+make stop              # operator-requested shutdown of existing containers
+make start             # resume the saved set; no Compose up or recreation
+make remote-start      # daemon processes do not survive stop/start
 make remote-status
 ```
 
-If `make up` recreates the container, Codex auth and sessions remain
-in the `codex-state` named volume but the managed daemon must be started
-again. `make remote-start` does **not** auto-run on host boot. To
+For the **first start** or recovery with no `make stop` checkpoint,
+use `make up` (not `make start`). After image or configuration changes,
+rebuild/recreate the agent instead of resuming unchanged containers.
+Codex sessions, authentication and memories default to the
+`./volumes/codex/<project-key>` host bind directory, or an explicitly
+selected legacy named volume. `make remote-start` does not run
+automatically on host boot. To
 stop remote management without deleting data:
 
 ```bash
@@ -286,11 +292,13 @@ Keep `read_only: true`, drop all capabilities, retain internal-only
 agent networking, and use the Squid proxy for outbound HTTPS. Do not
 attach the Podman/Docker socket or blanket-mount host `$HOME`.
 
-**Persistent data:** `codex-state:/root/.codex` holds Codex
-authentication and session data; `agent-cache:/root/.cache` holds
-build caches; `PROJECT_DIR` is the approved writable host source
-directory. `make reset-state` deletes persistent volumes; do **not**
-use it while debugging Remote Control.
+**Persistent data:** the complete `/root/.codex` (auth, sessions,
+memories and SQLite) defaults to a gitignored host bind directory,
+`./volumes/codex/<project-key>`; an existing named volume can also
+be selected explicitly. `agent-cache:/root/.cache` holds build caches;
+`PROJECT_DIR` is the approved source directory. `make reset-state`
+is destructive for named volumes and does not replace backups for
+host bind state. Never use it to debug Remote Control.
 
 For implementation details and security limitations see
 [Remote Control reference](remote-control.md),

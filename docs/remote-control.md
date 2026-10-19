@@ -24,7 +24,7 @@ The old repository used a non-internal network. **Do not keep the old
 network** when testing restricted egress.
 
 ```bash
-git switch feature/remote-control-network-isolation
+# Stay on the selected release/PR branch containing these features.
 cp -n .env.example .env
 # Edit .env: PROJECT_DIR, distinct COMPOSE_PROJECT_NAME, unique AGENT_SUBNET.
 # Preserve existing .env / named volumes / credentials.
@@ -85,13 +85,14 @@ is **still running after `podman exec` exits**, rather than treating
 successful CLI invocation as proof. Multiple starts should be idempotent.
 
 A container recreation destroys its processes, but not CODEX_HOME.
-After `make up` / `make up-serena` / a host reboot restart with
-`make remote-start`. The current implementation uses the official
-managed daemon; there is no extra supervisor or PID1 patch. It does not
-automatically restart after Podman container recreation. For unattended
-VPS operation, arrange a **host-side user service** that runs make up
-and make remote-start after Podman is available; do not install systemd
-inside the container. If the daemon unexpectedly exits, use
+After `make up`, `make up-serena`, `make start`, or host reboot
+recovery, invoke `make remote-start` again: the managed daemon is a
+process, not an automatically restored service. A prior `make stop`
+allows `make start` to resume exactly the saved container set; without
+that checkpoint, use `make up` for initial provisioning/recovery.
+For unattended VPS operation arrange a **host-side user service** that
+starts the correct Compose environment and then invokes
+`make remote-start`; do not install systemd inside the container. If the daemon unexpectedly exits, use
 `make remote-status` and re-run `make remote-start`.
 
 **Secrets:** pairing codes expire quickly and are sensitive. The pair
