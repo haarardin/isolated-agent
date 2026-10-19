@@ -316,7 +316,12 @@ def generate(data, folder=OUT):
         else:
             url = i["url"] if where == "external" else ("http://" + project_name + "-tool-" + tid + ":" + str(tool["runtime"]["port"]) + i.get("path", "/mcp"))
             mcp += ["url = " + json.dumps(url)]
-    (folder / "compose.tools.yaml").write_text("\n".join(compose) + (("\n") if sidecars else " {}\n"))
+    # An empty services mapping needs {}, but an agent-only overlay already
+    # contains a valid mapping. Appending {} to its final volume line breaks
+    # YAML parsing (notably for embedded Serena with persistent state).
+    if len(compose) == 2:
+        compose[1] = "services: {}"
+    (folder / "compose.tools.yaml").write_text("\n".join(compose) + "\n")
     (folder / "codex-mcp.toml").write_text("\n".join(mcp) + "\n")
     (folder / "project-commands.json").write_text(json.dumps(data.get("project", {}), indent=2) + "\n")
     digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode())
