@@ -109,6 +109,7 @@ memory-info:
 	@printf 'Codex (%s):        %s -> /root/.codex\n' "$(CODEX_STATE_MOUNT_TYPE)" "$(CODEX_STATE_MOUNT_SOURCE)"
 
 preflight:
+	@python3 scripts/check-legacy-serena.py
 	@bash scripts/preflight.sh
 	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
