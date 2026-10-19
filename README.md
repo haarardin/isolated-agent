@@ -246,11 +246,19 @@ Open a regular shell:
 make shell
 ```
 
-Stop the environment:
+Stop the **existing containers without removing or recreating them**:
 
 ```bash
-make down
+make stop
+# Later, resume exactly the containers that were running:
+make start
 ```
+
+For first-time creation or after image/Compose changes, use `make up`
+(or `make up-example` for PostgreSQL + Redis). Use `make down` only
+when you explicitly want the Compose containers removed. Volumes are
+preserved by normal `down`, but the container IDs and writable layers
+are not.
 
 ## Independent network name and shared networks
 
@@ -881,6 +889,53 @@ Do not solve nested Bubblewrap failures by adding privileged mode, host runtime 
 
 With Codex's inner sandbox disabled, commands run by the agent share the container security domain with Codex itself. Treat the container as a trusted development sandbox, avoid mounting unrelated secrets, keep host credentials out of it, and prefer narrowly scoped credentials when this project moves to remote/self-hosted execution.
 
+
+## Project-wide lifecycle: `make stop` / `make start`
+
+These two commands operate on **all existing containers belonging to the
+current `COMPOSE_PROJECT_NAME`**, identified by Compose's Podman-native or
+Docker-compatible project labels. This includes the agent, Squid, optional
+PostgreSQL/Redis, and any enabled Agent Tool sidecars that have already been
+created. Containers of other Compose projects are never selected, even
+when they share `AGENT_NETWORK_NAME`.
+
+```bash
+make up-example            # create agent + squid + postgres + redis (once)
+make stop                  # stop the currently running containers
+make start                 # restart the same containers, no Compose 'up'
+make ps-example
+make doctor
+```
+
+`make stop` saves only containers that were **running (or paused)**
+into an atomic `.state/lifecycle-<project-key>.json` checkpoint, then
+stops them with a graceful 30-second timeout. Already stopped services
+remain stopped; a paused service is restored to paused state. Stopping
+twice without an intervening `make start` does not erase the checkpoint.
+`make start` uses those exact saved container IDs, starting dependency
+services before the agent, and then clears the checkpoint after success.
+
+The operations do not create/remove containers, build images, change
+Compose profiles, networks or volumes. They verify the project labels
+and agent's workspace/Codex mounts before acting. If a saved container
+was removed/recreated externally or the project configuration now
+points to a different workspace, `make start` **fails rather than
+silently switching containers**. Inspect/resolve the stale checkpoint
+before a fresh `make up` or `make stop` cycle.
+
+`make start` is **not a substitute for initial `make up`** and is not
+an image-update command. Without a prior `make stop`, it will explain
+that there is no saved running set. For image/config changes, use
+`make build-project` and `make recreate-agent` as usual.
+
+**Persistence:** bind-mounted Codex/Serena state, workspace files,
+PostgreSQL's persistent named volume, and each existing container's
+writable layer survive `make stop`/`make start`. Processes are
+terminated/restarted, not frozen: interactive Codex sessions end, and
+the example Redis uses no snapshot/AOF persistence, so **its in-memory
+keys are lost when stopped**. Close/commit active work before stopping.
+Do not confuse `make stop` with `make down` (Compose removes service
+containers) or `make clean` (removes project containers/networks).
 
 ## Agent-only lifecycle
 
