@@ -220,6 +220,11 @@ jobs:
           int sum(int a, int b) { return a + b; }
           int caller(void) { return sum(1, 2); }
           C
+          # Serena 1.7 health-check intentionally skips source files <=1000B.
+          for i in $(seq 1 40); do
+            printf '// Serena C fixture expansion %03d; comments do not affect symbols.\n' "$i" >> "$scratch/workspace/test.c"
+          done
+          test "$(wc -c < "$scratch/workspace/test.c")" -gt 1000
 
           # The project-specific ls_path above must be ignored because
           # /workspace is NOT trusted. Our global binding still starts
