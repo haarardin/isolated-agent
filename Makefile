@@ -22,6 +22,9 @@ SERENA_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$
 # Explicit, one-time opt-in only for a pre-existing, unbound volume.
 CODEX_BIND_EXISTING_STATE ?= false
 SERENA_BIND_EXISTING_STATE ?= false
+# Explicit opt-in required when a selected named volume does not exist.
+CODEX_CREATE_NAMED_VOLUME ?= false
+SERENA_CREATE_NAMED_VOLUME ?= false
 export PROJECT_DIR CODEX_PROJECT_KEY CODEX_STATE_VOLUME SERENA_STATE_VOLUME
 export CODEX_STATE_MOUNT_TYPE CODEX_STATE_MOUNT_SOURCE CODEX_NAMED_VOLUME
 export SERENA_STATE_MOUNT_TYPE SERENA_STATE_MOUNT_SOURCE SERENA_NAMED_VOLUME
@@ -38,6 +41,8 @@ COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/comp
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
 COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
 COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
+COMPOSE_OFFLINE ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml
+COMPOSE_TOOLS ?= $(COMPOSE_WEB)
 COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
 COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
 
@@ -69,7 +74,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -136,9 +141,9 @@ network-ensure: preflight
 	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 prepare-state:
-	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)"
+	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)" --serena-named-volume "$(SERENA_NAMED_VOLUME)" --serena-create-named-volume "$(SERENA_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"
 
-prepare-web: network-ensure prepare-state deps-generate deps-tool-state
+prepare-web: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/prepare-web.sh
 
 deps-validate:
@@ -156,10 +161,14 @@ deps-tool-state:
 deps-build: deps-generate
 	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
 
-deps-tools-up: deps-generate deps-tool-state
-	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
-	if [ -n "$$services" ]; then \
-		$(COMPOSE_WEB) up -d $$services; \
+deps-reconcile: deps-generate
+	@services="$(python3 scripts/dependencies.py sidecar-services)"; \
+	 PODMAN="$(PODMAN)" python3 scripts/reconcile-tool-sidecars.py --project "$(COMPOSE_PROJECT_NAME)" --enabled "$services"
+
+deps-tools-up: deps-generate deps-tool-state deps-reconcile
+	@services="$(python3 scripts/dependencies.py sidecar-services)"; \
+	if [ -n "$services" ]; then \
+		$(COMPOSE_TOOLS) up -d $services; \
 	else \
 		printf 'Agent Tools: no sidecars enabled; skipping Compose sidecar startup.\n'; \
 	fi
@@ -326,19 +335,21 @@ up-example: prepare-web
 	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
 
-offline: network-ensure prepare-state deps-generate deps-tool-state
+offline: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
-	$(COMPOSE) up -d agent
+	@$(MAKE) deps-tools-up COMPOSE_TOOLS="$(COMPOSE_OFFLINE)"
+	$(COMPOSE_OFFLINE) up -d agent
 
-offline-example: network-ensure prepare-state deps-generate deps-tool-state
+offline-example: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
 
-offline-serena: network-ensure prepare-state deps-generate deps-tool-state
+offline-serena: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/remove-service.sh squid
 	@bash scripts/remove-service.sh agent
+	@$(MAKE) deps-tools-up COMPOSE_TOOLS="$(COMPOSE_OFFLINE_SERENA)"
 	$(COMPOSE_OFFLINE_SERENA) up -d agent
 
 down: deps-generate

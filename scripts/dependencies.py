@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import posixpath
 import re
 import shlex
 import subprocess
@@ -102,6 +103,25 @@ def check_step(step, where):
         err(where + ": unsupported keys " + repr(set(step)-allowed))
 
 
+PROTECTED_STATE_TARGETS = ("/root/.codex", "/workspace", "/root/.cache", "/tmp", "/run")
+
+
+def mount_overlap(a, b):
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def validate_state_target(target, owner, seen):
+    if target != posixpath.normpath(target) or not target.startswith("/") or target == "/":
+        err(owner + ": state target must be a canonical absolute directory")
+    for protected in PROTECTED_STATE_TARGETS:
+        if mount_overlap(target, protected):
+            err(owner + ": state target overlaps protected mount " + protected)
+    for previous, previous_owner in seen.items():
+        if mount_overlap(target, previous):
+            err(owner + ": state target overlaps tool " + previous_owner + " at " + previous)
+    seen[target] = owner
+
+
 def parse(path=CONFIG):
     data = tomllib.loads(path.read_text())
     if set(data) - {"base", "apt", "install", "agent_tools", "project"}:
@@ -118,6 +138,7 @@ def parse(path=CONFIG):
     for i, step in enumerate(installs):
         check_step(step, "install[" + str(i) + "]")
     seen = set()
+    state_targets = {}
     tools = data.get("agent_tools", [])
     if not isinstance(tools, list):
         err("agent_tools must be an array")
@@ -171,6 +192,8 @@ def parse(path=CONFIG):
                 err(tid + ": state target must be an absolute container directory")
             if where == "external":
                 err(tid + ": external tool cannot mount local state")
+            if tool.get("enabled", True):
+                validate_state_target(mount, tid, state_targets)
         if not isinstance(run, dict) or not isinstance(it, dict):
             err(tid + ": invalid runtime/integration")
         if where == "external" and (toolsteps or run):
@@ -346,6 +369,7 @@ def generate(data, folder=OUT):
             alias = project_name + "-tool-" + tid
             compose += ["  tool-" + tid + ":",
                         "    image: localhost/isolated-agent-tool-" + project_name + "-" + tid + ":dev",
+                        "    labels:", '      isolated-agent.managed-tool: "true"',
                         "    read_only: true", "    cap_drop:", "      - ALL",
                         "    security_opt:", "      - no-new-privileges:true",
                         "    volumes:", "      - " + "$" + "{PROJECT_DIR:-./workspace}:/workspace:ro",
