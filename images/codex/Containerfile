@@ -10,7 +10,12 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
 RUN mkdir -p /opt/isolated-agent/codex-standalone \
     && test -x /root/.codex/packages/standalone/current/bin/codex \
     && test -f /root/.codex/packages/standalone/current/codex-package.json \
+    && release_dir="$(readlink -f /root/.codex/packages/standalone/current)" \
+    && test -d "$release_dir" \
+    && release_name="$(basename "$release_dir")" \
     && cp -a /root/.codex/packages/standalone/. /opt/isolated-agent/codex-standalone/ \
+    && test -d "/opt/isolated-agent/codex-standalone/releases/$release_name" \
+    && ln -sfn "releases/$release_name" /opt/isolated-agent/codex-standalone/current \
     && test -x /opt/isolated-agent/codex-standalone/current/bin/codex \
     && test -f /opt/isolated-agent/codex-standalone/current/codex-package.json \
     && test -x /opt/isolated-agent/codex-standalone/current/bin/codex-code-mode-host \
