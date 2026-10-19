@@ -69,7 +69,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
 
 help:
 	@printf '%s\n' \
@@ -87,6 +87,8 @@ help:
 	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
 	  'make test-serena-static Check optional integration without Podman' \
 	  'make up             Start agent with filtered Squid egress' \
+	  'make start          Restart only previously running project containers, without recreating' \
+	  'make stop           Stop all running containers in this Compose project, preserving them' \
 	  'make offline        Start agent without Internet' \
 	  'make remote-start   Start headless Codex Remote Control' \
 	  'make remote-pair    Show temporary Android pairing code' \
@@ -306,6 +308,15 @@ down-serena: deps-generate
 
 down-serena-example: deps-generate
 	$(COMPOSE_SERENA_EXAMPLE) down
+
+# Unlike 'up', these targets do not invoke Compose or change images,
+# service profiles, networks, containers or persistent state. The checkpoint
+# lives in .state/ and remembers only services running before 'make stop'.
+start:
+	@PODMAN="$(PODMAN)" python3 scripts/project-lifecycle.py start
+
+stop:
+	@PODMAN="$(PODMAN)" python3 scripts/project-lifecycle.py stop
 
 up: prepare-web
 	@bash scripts/check-agent-state.sh
