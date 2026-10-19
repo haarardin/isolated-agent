@@ -94,8 +94,9 @@ initial format. Do not configure them as if supported.
 Serena example: dependencies/examples/go-serena.toml. This is a plain
 embedded MCP tool: its Python venv is isolated in /opt/agent-tools/serena;
 Go and gopls are installed ONLY because that example opts into them.
-Legacy make up-serena remains supported as a migration option and still
-installs Serena using its older specialized image, without mandatory gopls.
+Serena is installed only when the generic tool is enabled. There is no
+dedicated Serena image, Compose profile or build target. See
+[Serena module setup and legacy state migration](serena.md).
 
 ## Explicit Agent Tool LSP bindings (Serena adapter)
 
@@ -211,8 +212,8 @@ state. Legacy tools are recognized by their isolated-agent image namespace;
 unrelated services and other projects are left alone.
 
 All online and offline provisioning profiles include the generated
-Agent Tools overlay. `make offline` and `make offline-serena` start
-enabled internal sidecars before the agent; `make offline-example`
+Agent Tools overlay. `make offline` starts enabled internal sidecars before the agent;
+`make offline-example`
 starts the overlay together with PostgreSQL/Redis. No Squid or
 direct outbound route is attached to offline agents/sidecars.
 `make recreate-agent` replaces only the agent, retaining persistent
@@ -284,13 +285,14 @@ The upstream implementation calls its down/stop/remove cleanup for
 changed compose hashes even when the old service container was
 already removed by our host-side helper.
 
-## Backward compatibility
+## Migration from previous Serena installations
 
-images/serena/Containerfile and old make up-serena targets remain while
-projects migrate to [[agent_tools]]. Avoid enabling the TOML Serena
-tool AND the legacy Serena overlay simultaneously: both register the
-same MCP name and will conflict.
+The specialized Serena image, Compose overlay, Make targets and Serena
+state variables are removed. To preserve old global Serena settings,
+migrate legacy named-volume data before enabling the generic module;
+project-scoped host state paths remain reusable when the project
+identity is unchanged. See [migration instructions](serena.md).
 
-This release does not implement hot-reloading MCP into already active
-Codex sessions. Changes to installed tools/configuration require
-rebuilding/recreating the affected agent (after saving active work).
+There is no hot-reloading of MCP into an active Codex session. After
+changing tools/configuration, save active work, rebuild and recreate
+the agent.
