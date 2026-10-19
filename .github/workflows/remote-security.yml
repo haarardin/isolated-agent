@@ -19,6 +19,7 @@ jobs:
           make test-image-reuse-static
           make test-project-context-static
           make test-serena-static
+          bash scripts/test-tool-lifecycle-static.sh
       - name: Verify Compose web, offline, Serena and optional services
         run: |
           mkdir -p .state
