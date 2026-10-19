@@ -26,4 +26,9 @@ if [[ ! -x "$CODEX_HOME/packages/standalone/current/codex" &&
   cp -a /opt/isolated-agent/codex-standalone/. "$CODEX_HOME/packages/standalone/"
 fi
 
+# Apply LSP executable bindings only after persistent state has been claimed
+# and mounted. Fail the agent start if a declared dependency is unavailable.
+# This never marks /workspace as a trusted Serena project.
+bash /usr/local/bin/isolated-agent-tool-lsp-runtime apply
+
 exec "$@"
