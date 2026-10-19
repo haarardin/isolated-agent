@@ -94,6 +94,69 @@ Go and gopls are installed ONLY because that example opts into them.
 Legacy make up-serena remains supported as a migration option and still
 installs Serena using its older specialized image, without mandatory gopls.
 
+## Serena 1.7 and local C/C++ language servers
+
+For the language-server backend, Serena 1.7.0 normally downloads its own
+clangd for \`cpp\`, even when Debian's \`clangd\` is installed in
+Dependencies. Set \`ls_specific_settings.cpp.ls_path\` to
+\`/usr/bin/clangd\` to use the installed toolchain.
+
+**Trust boundary:** Serena 1.6+ ignores project-level
+\`ls_specific_settings\` from \`/workspace/.serena/project.yml\`
+unless the project matches \`trusted_project_path_patterns\` in
+\`/root/.serena/serena_config.yml\`. Fresh Serena configurations
+trust no projects by default. Otherwise Serena may attempt to download
+and extract clangd and report \`cpp: Error extracting archive\`,
+which does not necessarily mean the filesystem or system clangd is broken.
+
+For untrusted projects, configure the user-owned, persistent global
+Serena config instead. From \`make shell\`, AFTER Serena has generated
+its global config:
+
+\`\`\`bash
+test -x /usr/bin/clangd
+test -f /root/.serena/serena_config.yml
+/opt/agent-tools/serena/bin/python - <<'PY'
+from pathlib import Path
+import shutil
+import yaml
+
+path = Path("/root/.serena/serena_config.yml")
+shutil.copy2(path, path.with_suffix(".yml.before-local-clangd"))
+data = yaml.safe_load(path.read_text()) or {}
+data.setdefault("ls_specific_settings", {}).setdefault("cpp", {})["ls_path"] = "/usr/bin/clangd"
+path.write_text(yaml.safe_dump(data, sort_keys=False))
+path.chmod(0o600)
+print("Using system clangd in persistent Serena global config")
+PY
+\`\`\`
+
+The backup preserves the original comments; the new YAML retains
+configuration values but not comments. The global Serena config resides
+in its per-project persistent bind mount. This approach does **not**
+mark arbitrary workspace repositories as trusted. Avoid putting global
+config changes into a Containerfile: that path is hidden by the bind mount.
+
+Restart the **interactive Codex session** so it starts a fresh Serena MCP
+process, then check symbol overview again. You do **not** need to rebuild
+Go, GCC, clangd or the agent image for this global-config change.
+
+After generating the C/C++ project using CMake, ensure
+\`/workspace/compile_commands.json\` points to the build database, for
+example \`ln -sfn build/compile_commands.json /workspace/compile_commands.json\`.
+Then run:
+
+\`\`\`bash
+/opt/agent-tools/serena/bin/serena project health-check /workspace
+\`\`\`
+
+Serena runtime logs are under \`/root/.serena/logs/\`. Examine the
+actual archive download/extraction error there if it still occurs.
+Do not paste full logs unfiltered: they can contain project information.
+
+See the Serena upstream documentation about
+\`ls_specific_settings\`, trusted projects and \`compile_commands.json\`.
+
 ## Build and lifecycle
 
 1. Edit dependencies/dependencies.toml (copy individual entries from examples).
