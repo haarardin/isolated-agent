@@ -163,6 +163,50 @@ command = "/opt/serena/bin/serena"
             self.assertNotIn("{} ", compose)
             self.assertTrue(compose.endswith(":rw\"\n"))
 
+    def test_reject_state_targets_overlapping_protected_mounts(self):
+        with tempfile.TemporaryDirectory() as td:
+            file = Path(td) / "bad.toml"
+            for target in ("/root/.codex", "/root", "/root/.codex/memories",
+                           "/workspace", "/workspace/tools", "/tmp", "/run/cache",
+                           "/root/.cache", "/root/.cache/go"):
+                file.write_text(f"""
+[[agent_tools]]
+id = "helper"
+kind = "mcp"
+placement = "embedded"
+[agent_tools.state]
+base = "./volumes/helper"
+target = "{target}"
+[agent_tools.integration]
+transport = "stdio"
+command = "/usr/local/bin/helper"
+""")
+                with self.subTest(target=target), self.assertRaisesRegex(ValueError, "protected mount"):
+                    deps.parse(file)
+
+    def test_reject_state_targets_overlapping_other_tool_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            file = Path(td) / "bad.toml"
+            for target in ("/opt/state", "/opt/state/nested"):
+                file.write_text(f"""
+[[agent_tools]]
+id = "first"
+kind = "cli"
+placement = "embedded"
+[agent_tools.state]
+base = "./volumes/first"
+target = "/opt/state"
+[[agent_tools]]
+id = "second"
+kind = "cli"
+placement = "embedded"
+[agent_tools.state]
+base = "./volumes/second"
+target = "{target}"
+""")
+                with self.subTest(target=target), self.assertRaisesRegex(ValueError, "overlaps tool first"):
+                    deps.parse(file)
+
     def test_reject_apt_shell_injection(self):
         with self.assertRaises(ValueError):
             deps.check_step({"type": "apt", "packages": ["curl;rm -rf /"]}, "apt")

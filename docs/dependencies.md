@@ -79,6 +79,9 @@ directory, creates it with restricted permissions before startup, and
 bind-mounts it as writable into the correct tool container. This is
 required for tools that write state under a read-only container root.
 State bases are restricted to this repository's volumes/ directory.
+Targets must not overlap protected /workspace, /root/.codex,
+/root/.cache, /tmp or /run mounts, or another enabled tool's
+state target. The generator rejects these collisions before build.
 
 Sidecars receive read-only /workspace, cap_drop ALL, no host ports and a
 read-only root filesystem. Sidecar binaries must be self-contained or
@@ -193,8 +196,14 @@ merely testing whether clangd is on PATH.
 5. Check codex mcp list from agent shell.
 
 make deps-build rebuilds Dependencies and active sidecar images.
-make deps-tools-up brings up only enabled sidecars. All normal web
-Compose profiles include generated Compose overlay; make recreate-agent
+make deps-tools-up brings up only enabled sidecars. Before starting a
+profile, make deps-reconcile removes disabled obsolete managed tool-*
+containers from the current Compose project only, preserving bind state
+and named volumes. Legacy tools are matched by their image namespace;
+unrelated services and other Compose projects are never removed.
+All online and offline Compose profiles include generated overlays.
+make offline starts enabled internal sidecars without Squid/outbound
+connectivity. make recreate-agent
 restarts the agent without deleting persistent CODEX_HOME/Serena state.
 
 IMPORTANT: Changing dependencies currently requires a deliberate rebuild

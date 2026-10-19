@@ -130,6 +130,13 @@ CODEX_BIND_EXISTING_STATE=true
 # SERENA_BIND_EXISTING_STATE=true
 ```
 
+Explicitly selected named volumes are now checked before Compose startup.
+A typo does not silently create a new blank home. To intentionally create a
+NEW named volume, temporarily set `CODEX_CREATE_NAMED_VOLUME=true`
+(or `SERENA_CREATE_NAMED_VOLUME=true`) in .env and turn it off after
+startup. This is separate from `CODEX_BIND_EXISTING_STATE`, which opts
+in to claiming an already-populated legacy volume.
+
 Before the first start, confirm the real name with `podman volume ls`,
 stop Codex and Remote Control, and export a backup using
 `podman volume export <volume-name> --output backup.tar`.

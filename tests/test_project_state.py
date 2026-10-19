@@ -5,6 +5,7 @@ import importlib.util
 import os
 import stat
 import pathlib
+from unittest import mock
 import subprocess
 import tempfile
 import unittest
@@ -74,6 +75,28 @@ class ProjectStateTests(unittest.TestCase):
             (codex / "memories.sqlite").write_bytes(b"not erased")
             subprocess.run(args, check=True, capture_output=True)
             self.assertEqual((codex / "memories.sqlite").read_bytes(), b"not erased")
+
+    def test_explicit_named_volume_missing_or_opted_in(self):
+        spec = importlib.util.spec_from_file_location(
+            "prepare_state", ROOT / "scripts/prepare-state.py")
+        preparation = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(preparation)
+        with mock.patch.object(preparation.subprocess, "run") as runner:
+            runner.return_value = subprocess.CompletedProcess([], 1, "", "")
+            with self.assertRaisesRegex(ValueError, "does not exist"):
+                preparation.ensure_path("volume", "codex-state", "Codex",
+                                        named_volume="typo_codex-state")
+            self.assertIn("typo_codex-state", runner.call_args.args[0])
+            preparation.ensure_path("volume", "codex-state", "Codex",
+                                    named_volume="new_codex-state", create_named_volume=True)
+            runner.return_value = subprocess.CompletedProcess([], 0, "", "")
+            preparation.ensure_path("volume", "serena-state", "Serena",
+                                    named_volume="legacy_serena-state")
+            runner.return_value = subprocess.CompletedProcess([], 125, "", "no daemon")
+            with self.assertRaisesRegex(RuntimeError, "cannot inspect"):
+                preparation.ensure_path("volume", "codex-state", "Codex",
+                                        named_volume="legacy_codex-state",
+                                        create_named_volume=True)
 
     def test_invalid_identity(self):
         with self.assertRaises(ValueError):
