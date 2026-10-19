@@ -269,6 +269,20 @@ jobs:
             -v "$folder:/root/.codex" \
             localhost/isolated-agent-project:ci \
             sh -ec 'test "$(cat "$CODEX_HOME/memories/test.txt")" = bind-ok'
+          # Trigger the daemon package-discovery path without credentials
+          # or network. It may fail later (no auth / detachment on CI), but
+          # must never report that our complete Codex package is missing.
+          daemon_output="$(timeout 25 docker run --rm --read-only --network none \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --tmpfs /run:rw,nosuid,nodev,size=32m \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'codex app-server daemon start' 2>&1)" || true
+          if printf '%s\\n' "$daemon_output" | grep -Fq 'this CLI has no complete local package'; then
+            echo "Codex daemon cannot find complete package despite image install" >&2
+            exit 1
+          fi
           if docker run --rm --read-only --network none \
             -e CODEX_PROJECT_KEY=dddddddddddddddddddddddd \
             -v "$folder:/root/.codex" \
