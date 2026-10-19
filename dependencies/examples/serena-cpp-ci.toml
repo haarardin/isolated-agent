@@ -1,0 +1,30 @@
+# Isolated CI fixture: no Go SDK, only Serena + system clangd.
+[base]
+image = "debian:13-slim"
+
+[apt]
+packages = ["python3", "python3-venv", "clangd"]
+
+[[agent_tools]]
+id = "serena"
+kind = "mcp"
+placement = "embedded"
+enabled = true
+
+[[agent_tools.install]]
+type = "command"
+run = "python3 -m venv /opt/agent-tools/serena && /opt/agent-tools/serena/bin/python -m pip install --no-cache-dir 'serena-agent==1.7.0'"
+verify = ["/opt/agent-tools/serena/bin/serena --version"]
+
+[agent_tools.state]
+base = "./volumes/serena"
+target = "/root/.serena"
+
+[agent_tools.lsp]
+adapter = "serena"
+servers = { cpp = "/usr/bin/clangd" }
+
+[agent_tools.integration]
+transport = "stdio"
+command = "/opt/agent-tools/serena/bin/serena"
+args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transport=stdio"]
