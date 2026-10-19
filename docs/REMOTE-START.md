@@ -221,15 +221,16 @@ project, if `make preflight` reports that this **same project's**
 `isolated-dev` network is not internal:
 
 ```bash
-# Finish/save active Codex tasks; back up valuable named-volume state.
+# Finish/save active Codex tasks; back up valuable bind/named-volume state.
 CONFIRM=YES make migrate-network
 make preflight
 make network-check
 ```
 
 `migrate-network` runs Compose `down` **without `-v`**, then starts
-the filtered web profile. It stops running sessions, but should preserve
-`codex-state`, `agent-cache`, Serena and DB named volumes. If you
+the filtered web profile. It stops running sessions, but preserves the default Codex/Serena
+host bind state as well as existing `agent-cache`, DB and legacy
+named volumes. If you
 were using optional services, restart the relevant profile afterward;
 restart the managed daemon with `make remote-start`. Do not use this
 command to fix an unrelated subnet collision with another project,

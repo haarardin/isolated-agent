@@ -889,13 +889,15 @@ See [dependencies and Agent Tools](docs/dependencies.md) and
 ## Network security change (migration required)
 
 The former `isolated-dev` network was `internal: false`.
-It is now `internal: true` with a configurable
-`AGENT_SUBNET` (default `10.89.71.0/24`). An existing unrestricted
-network **must not** be silently reused. Run `make preflight` to
+It is now `internal: true` with configurable `AGENT_SUBNET`
+(default `auto`, which chooses an available /24 from the configured
+network allocation pool). An existing unrestricted network **must not**
+be silently reused. Run `make preflight` to
 identify it, then explicitly run
 `CONFIRM=YES make migrate-network` (after saving work).
 That stops project containers using Compose `down` **without `-v`**,
-preserving Codex, PostgreSQL, cache and Serena named volumes.
+preserving both default project-scoped Codex/Serena host bind directories
+and existing PostgreSQL, cache or legacy Codex/Serena named volumes.
 
 `make up` starts Squid separately dual-homed between internal and
 outbound networks; Codex itself has no direct Internet route.

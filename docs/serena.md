@@ -184,7 +184,7 @@ by destructive volume-reset commands.
   are configured in `dependencies/dependencies.toml`; they do not
   implicitly run Go tests in the neutral default image.
 
-## Benchmark before merging into the mainline
+## Benchmark before enabling Serena broadly
 
 Compare baseline Codex and Codex+Serena on the same real Go revision.
 Suggested tasks: locate all implementations of an interface, change a shared
