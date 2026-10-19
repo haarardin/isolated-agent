@@ -123,6 +123,23 @@ Example:
   test = "python3 -m pytest -q"
   lint = "python3 -m compileall -q ."
 
+## podman-compose 1.3.0 harmless removal notices
+
+When `make recreate-agent` explicitly removes the old agent container,
+`podman-compose up -d agent` may also attempt to stop/remove it during
+its own configuration-hash reconciliation. On Debian 13
+(`podman-compose 1.3.0`), this can print two
+`Error: no container with name or ID ... found` messages **before**
+successfully creating a new agent.
+
+These messages alone are not fatal. Confirm success with the exit code
+of `make recreate-agent`, `make ps` (agent running), and
+`make doctor` (runtime checks pass). Do not suppress all Compose
+stderr or ignore nonzero exit codes: other Podman errors can be real.
+The upstream implementation calls its down/stop/remove cleanup for
+changed compose hashes even when the old service container was
+already removed by our host-side helper.
+
 ## Backward compatibility
 
 images/serena/Containerfile and old make up-serena targets remain while
