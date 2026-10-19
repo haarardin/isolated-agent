@@ -230,7 +230,7 @@ jobs:
             -e CODEX_PROJECT_KEY="$key" \
             -v "$volume:/root/.codex" \
             localhost/isolated-agent-project:ci \
-            sh -ec 'mkdir -p "$CODEX_HOME/memories"; echo persisted > "$CODEX_HOME/memories/probe.txt"'
+            sh -ec 'codex --version; test -x /usr/local/bin/codex; mkdir -p "$CODEX_HOME/memories"; echo persisted > "$CODEX_HOME/memories/probe.txt"'
           docker run --rm --read-only --network none \
             -e CODEX_PROJECT_KEY="$key" \
             -v "$volume:/root/.codex" \
@@ -262,7 +262,7 @@ jobs:
             -e CODEX_PROJECT_KEY="$key" \
             -v "$folder:/root/.codex" \
             localhost/isolated-agent-project:ci \
-            sh -ec 'mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
+            sh -ec 'codex --version; test -x /usr/local/bin/codex; mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
           docker run --rm --read-only --network none \
             -e CODEX_PROJECT_KEY="$key" \
             -v "$folder:/root/.codex" \
@@ -287,4 +287,5 @@ jobs:
               codex remote-control stop --help >/dev/null
               codex app-server daemon --help >/dev/null
               test -x /root/.codex/packages/standalone/current/codex
+              test -x /usr/local/bin/codex
             '
