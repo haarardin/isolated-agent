@@ -155,7 +155,12 @@ deps-build: deps-generate
 	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
 
 deps-tools-up: deps-generate deps-tool-state
-	@services="$(python3 scripts/dependencies.py sidecar-services)"; if [ -n "$services" ]; then $(COMPOSE_WEB) up -d $services; fi
+	@services="$(python3 scripts/dependencies.py sidecar-services)"; \
+	if [ -n "$services" ]; then \
+		$(COMPOSE_WEB) up -d $services; \
+	else \
+		printf 'Agent Tools: no sidecars enabled; skipping Compose sidecar startup.\n'; \
+	fi
 
 doctor:
 	@bash scripts/doctor.sh
