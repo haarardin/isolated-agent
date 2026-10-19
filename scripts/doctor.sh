@@ -20,8 +20,12 @@ command -v codex >/dev/null 2>&1 || {
   exit 1
 }
 
-printf "Go:              "
-go version
+if command -v go >/dev/null 2>&1; then
+  printf "Go:              "
+  go version
+else
+  printf "Go:              not installed (optional)\n"
+fi
 
 printf "Codex:           "
 codex --version
