@@ -1,8 +1,15 @@
-# Optional Serena MCP integration
+# Serena MCP integration (legacy image compatibility)
 
-This is an opt-in fourth image layer for large, production-scale codebases.
-PR #1 remains the baseline; this layer must **not** change baseline Codex
-behavior when `compose.serena.yaml` is not selected.
+**Preferred for new projects:** install Serena as a generic embedded MCP
+Agent Tool through `dependencies/dependencies.toml`. See
+[Agent Tools and LSP configuration](dependencies.md) and the example
+`dependencies/examples/go-serena.toml` for the Go/gopls setup,
+persistent state and declarative clangd LSP bindings.
+
+This document primarily covers the **optional legacy Serena image**
+(`make build-serena` / `make up-serena`). It is no longer a required
+fourth baseline layer. Do not register both legacy and generic
+Serena MCP integrations in the same agent.
 
 ## Why this integration
 
@@ -19,12 +26,12 @@ is needed.
 
 ```text
 rootless Podman (same baseline restrictions)
-  agent: isolated-agent-serena:dev (optional)
+  agent: isolated-agent-serena-<project-key>:dev (optional legacy image)
     Codex CLI
        |
-       +-- MCP stdio -> Serena 1.7.0 -> gopls v0.20.0
+       +-- MCP stdio -> Serena 1.7.0 -> optional gopls
        |
-       +-- Go tests/build tools
+       +-- SDKs/tests only if installed via Dependencies
     /workspace               host PROJECT_DIR bind mount (RW)
       AGENTS.md               project instructions
       .codex/config.toml      project Codex overrides
@@ -45,26 +52,31 @@ The MCP stanza is **not** written into project or user config; it is appended to
 the image's `/etc/codex/config.toml`. This keeps system integration policy
 separate from project-specific configuration.
 
-`SERENA_VERSION=1.7.0` and `SERENA_GOPLS_VERSION=v0.20.0` are pinned,
-not `latest`. The pinned Serena **v1.7.0** source release is MIT licensed;
+`SERENA_VERSION=1.7.0` pins the legacy Serena package.
+`SERENA_GOPLS_VERSION=v0.20.0` remains a compatibility Make argument,
+but the legacy image no longer installs `gopls`. To use Go semantic
+tools, explicitly install Go/gopls via Dependencies. The pinned Serena
+**v1.7.0** source release is MIT licensed;
 later upstream revisions may have different licensing. Review licenses
 before updating the pin or distributing images.
 
 ## Install and first run
 
-From this child branch (or after its parent PR is merged and rebased):
+From a checkout containing the legacy compatibility targets:
 
 ```bash
-git fetch origin
-git switch feat/serena-mcp-integration
-# Set PROJECT_DIR and COMPOSE_PROJECT_NAME in your local .env
-make build-project   # only when project image is not yet built/changed
+# Set PROJECT_DIR and COMPOSE_PROJECT_NAME in your local .env.
+# Configure Go/gopls in dependencies/dependencies.toml if required.
+make build-project
 make build-serena
-make up-example        # one-time bootstrap only on an empty Compose project
-make up-serena-example # recreate only agent with Serena image
+make up-example        # one-time bootstrap, only for an empty example stack
+make up-serena-example # replace only the agent with the legacy Serena image
 make serena-doctor
 make codex-serena
 ```
+
+For a new project, prefer the generic embedded MCP installation documented
+in [dependencies.md](dependencies.md) rather than the legacy image.
 
 `make up-serena` starts only the agent. `make up-serena-example`
 uses the Compose overlay with PostgreSQL/Redis endpoints, but **only
@@ -122,15 +134,17 @@ not open a browser or start a dashboard listener inside the container.
 make ps-serena-example
 make serena-doctor
 bash scripts/compose.sh exec agent codex mcp list
-bash scripts/compose.sh exec agent gopls version
+bash scripts/compose.sh exec agent gopls version  # only if configured
 bash scripts/compose.sh exec agent ls -la /root/.serena
 bash scripts/compose.sh exec agent ls -la /workspace/.serena
 make test
 make race
 ```
 
-The doctor verifies inherited runtime restrictions, Serena executable,
-`gopls`, writable Serena state and the MCP entry in Codex. It does **not**
+The legacy doctor verifies inherited runtime restrictions, the Serena
+executable, writable Serena state and the MCP entry in Codex. It checks
+`gopls` only when present in PATH; for declarative Serena LSP validation
+use `make doctor` and `make lsp-doctor`. It does **not**
 prove the MCP handshake, index correctness or token reduction; verify
 those interactively with `/mcp` and the semantic smoke prompt.
 
@@ -149,8 +163,9 @@ standard project image is restored without attempting to recreate
 already-running PostgreSQL/Redis containers. Do **not** use
 `make remove-agent && make up-example` on a running example stack:
 that can trigger the same duplicate container-name error.
-The Serena global-state directory is independently resolved per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena state volume remains until the explicit destructive
-`make reset-state` cleanup.
+The Serena global-state directory is independently resolved per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena global state bind directory remains after removing the
+container; the separately configured legacy named volume may be affected
+by destructive volume-reset commands.
 
 ## Limitations and security
 
@@ -165,7 +180,9 @@ The Serena global-state directory is independently resolved per source project; 
   is a separate trust boundary. Do not mount host home, SSH keys or socket.
 - For confidential production source code, review dependencies, security
   policy and data flow before using model-powered MCP operations.
-- The baseline `make test`/`make race` remain unchanged.
+- `make test`/`make race` run only if corresponding `[project]` commands
+  are configured in `dependencies/dependencies.toml`; they do not
+  implicitly run Go tests in the neutral default image.
 
 ## Benchmark before merging into the mainline
 
@@ -190,7 +207,7 @@ outweigh reduced source reads for simpler tasks.
 `SERENA_STATE_VOLUME=./volumes/serena` in `.env.example` sets the base
 host directory inside the `isolated-agent` repository. The
 `<project-key>` subdirectory is created automatically by `make up-serena`
-(and other agent startup Make targets). It is mounted at `/root/.serena`;
+(and other agent provisioning Make targets). It is mounted at `/root/.serena`;
 the folder persists when the container is deleted. The application-specific
 Serena project memories stay under `PROJECT_DIR/.serena/memories/`.
 
