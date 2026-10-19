@@ -19,6 +19,7 @@ CODEX_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$(
 CODEX_BIND_EXISTING_STATE ?= false
 # Explicit opt-in required when a selected named volume does not exist.
 CODEX_CREATE_NAMED_VOLUME ?= false
+export PROJECT_DIR CODEX_PROJECT_KEY CODEX_STATE_VOLUME CODEX_BIND_EXISTING_STATE
 export CODEX_STATE_MOUNT_TYPE CODEX_STATE_MOUNT_SOURCE CODEX_NAMED_VOLUME
 AGENT_SUBNET ?= auto
 # Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
