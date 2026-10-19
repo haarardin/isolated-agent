@@ -47,6 +47,22 @@ class DependencyTests(unittest.TestCase):
             self.assertEqual(bindings[0]["python"], "/opt/agent-tools/serena/bin/python")
             self.assertEqual(bindings[0]["state"], "/root/.serena")
 
+    def test_warn_when_serena_cannot_find_locally_installed_clangd(self):
+        cfg = deps.parse(ROOT / "dependencies/examples/go-serena.toml")
+        self.assertEqual(deps.lsp_configuration_warnings(cfg), [])
+        cfg["agent_tools"][0].pop("lsp")
+        warnings = deps.lsp_configuration_warnings(cfg)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("[agent_tools.lsp]", warnings[0])
+        self.assertIn("Error extracting archive", warnings[0])
+        # No false warning when another project does not install clangd.
+        cfg["apt"]["packages"].remove("clangd")
+        self.assertEqual(deps.lsp_configuration_warnings(cfg), [])
+        # A disabled Serena tool needs no runtime LSP mapping.
+        cfg["apt"]["packages"].append("clangd")
+        cfg["agent_tools"][0]["enabled"] = False
+        self.assertEqual(deps.lsp_configuration_warnings(cfg), [])
+
     def test_invalid_lsp_bindings_are_rejected(self):
         good = {"id": "serena", "placement": "embedded", "kind": "mcp",
                 "integration": {"transport": "stdio", "command": "/opt/serena/bin/serena"},
