@@ -93,7 +93,7 @@ class DependencyTests(unittest.TestCase):
             compose = (out / "compose.tools.yaml").read_text()
             self.assertIn("services:\n  agent:\n    volumes:\n", compose)
             self.assertIn("/root/.serena:rw", compose)
-            self.assertEqual(len(compose.splitlines()), 4)
+            self.assertEqual(len(compose.splitlines()), 5)
             self.assertNotIn("{} ", compose)
             self.assertTrue(compose.endswith(":rw\"\n"))
 
