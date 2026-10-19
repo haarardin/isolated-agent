@@ -106,7 +106,6 @@ memory-info:
 	@printf 'Project path:         %s\n' "$(abspath $(PROJECT_DIR))"
 	@printf 'Project key:          %s\n' "$(CODEX_PROJECT_KEY)"
 	@printf 'Codex (%s):        %s -> /root/.codex\n' "$(CODEX_STATE_MOUNT_TYPE)" "$(CODEX_STATE_MOUNT_SOURCE)"
-	@printf '%s\n' 'Serena project memories remain in PROJECT_DIR/.serena/memories/'
 
 preflight:
 	@bash scripts/preflight.sh
