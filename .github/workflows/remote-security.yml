@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, feat/project-scoped-codex-memory-volumes]
+    branches: [main]
   workflow_dispatch:
 jobs:
   config-and-tests:
@@ -18,9 +18,8 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py' -v
           make test-image-reuse-static
           make test-project-context-static
-          make test-serena-static
           bash scripts/test-tool-lifecycle-static.sh
-      - name: Verify Compose web, offline, Serena and optional services
+      - name: Verify Compose web, offline, generic tools and optional services
         run: |
           mkdir -p .state
           # Docker Compose derives its default project name from the checkout
@@ -29,27 +28,21 @@ jobs:
           export AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev
           export CODEX_PROJECT_KEY="$(python3 scripts/project-state.py --project-dir "$PWD/workspace" --compose-project "$COMPOSE_PROJECT_NAME" --field key)"
           export CODEX_STATE_VOLUME="./volumes/codex"
-          export SERENA_STATE_VOLUME="./volumes/serena"
           export CODEX_STATE_MOUNT_TYPE=bind
-          export SERENA_STATE_MOUNT_TYPE=bind
           export CODEX_STATE_MOUNT_SOURCE="$PWD/volumes/codex/$CODEX_PROJECT_KEY"
-          export SERENA_STATE_MOUNT_SOURCE="$PWD/volumes/serena/$CODEX_PROJECT_KEY"
           export CODEX_NAMED_VOLUME="isolated-agent-codex-$CODEX_PROJECT_KEY"
-          export SERENA_NAMED_VOLUME="isolated-agent-serena-$CODEX_PROJECT_KEY"
           python3 scripts/prepare-state.py \
-            --codex-type "$CODEX_STATE_MOUNT_TYPE" --codex-source "$CODEX_STATE_MOUNT_SOURCE" \
-            --serena-type "$SERENA_STATE_MOUNT_TYPE" --serena-source "$SERENA_STATE_MOUNT_SOURCE"
+            --codex-type "$CODEX_STATE_MOUNT_TYPE" --codex-source "$CODEX_STATE_MOUNT_SOURCE"
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
           COMPOSE_PROJECT_NAME=isolated-agent-demo bash scripts/prepare-web.sh
           python3 scripts/dependencies.py generate
-          for profile in base web example serena; do
+          for profile in base web example; do
             case "$profile" in
               base) files="-f compose.yaml -f .generated/compose.tools.yaml";;
               web) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml";;
               example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml";;
-              serena) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml";;
             esac
             docker compose $files config --format json > "/tmp/$profile.json"
           done
@@ -61,8 +54,7 @@ jobs:
           offline=load('base')
           web=load('web')
           example=load('example')
-          serena=load('serena')
-          for name,conf in [('offline',offline),('web',web),('example',example),('serena',serena)]:
+          for name,conf in [('offline',offline),('web',web),('example',example)]:
               sv=conf['services']['agent']
               assert set(sv['networks'])=={'isolated-dev'},(name,sv['networks'])
               internal_net=conf['networks']['isolated-dev']
@@ -78,10 +70,6 @@ jobs:
               assert codex_home['type']=='bind',name
               assert codex_home['source']==__import__('os').environ['CODEX_STATE_MOUNT_SOURCE'],name
               assert sv['environment']['CODEX_PROJECT_KEY']==__import__('os').environ['CODEX_PROJECT_KEY'],name
-              if name=='serena':
-                  serena_home=next(v for v in sv['volumes'] if v['target']=='/root/.serena')
-                  assert serena_home['type']=='bind'
-                  assert serena_home['source']==__import__('os').environ['SERENA_STATE_MOUNT_SOURCE']
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
               # The image contains /root/Documents -> /workspace; ensure
               # no second host mount sneaks into any Compose profile.
@@ -91,7 +79,7 @@ jobs:
               assert not workspace.get('read_only',False),name
               assert '/root/Documents' not in mounts,name
           assert set(offline['services'])=={'agent'}
-          for conf in (web,example,serena):
+          for conf in (web,example):
               assert 'squid' in conf['services']
               assert set(conf['services']['squid']['networks'])=={'isolated-dev','outbound'}
               assert not conf['services']['squid'].get('ports')
@@ -100,7 +88,6 @@ jobs:
           for s in ('postgres','redis'):
               assert set(example['services'][s]['networks'])=={'isolated-dev'}
               assert not example['services'][s].get('ports')
-          assert serena['services']['agent']['image'].endswith('isolated-agent-serena:dev')
           print('All Compose security profiles validated')
           PY
           # A different Compose project intentionally shares the network but

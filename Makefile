@@ -39,6 +39,7 @@ CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
 DEPENDENCIES_IMAGE ?= localhost/isolated-agent-dependencies:dev
 PROJECT_IMAGE ?= localhost/isolated-agent-project-$(CODEX_PROJECT_KEY):dev
 # Prevent different projects on one host from sharing a baked MCP config image.
+export PROJECT_IMAGE
 
 PROJECT_APT_PACKAGES ?=
 CODEX_AGENTS_FILE ?= templates/AGENTS.global.md
