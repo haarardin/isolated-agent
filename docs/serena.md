@@ -86,7 +86,10 @@ Before updating an existing deployment:
 3. Add the generic Serena `[[agent_tools]]` configuration to
    `dependencies/dependencies.toml`, including
    `[agent_tools.state]` with `base = "./volumes/serena"` and
-   `target = "/root/.serena"`.
+   `target = "/root/.serena"`. If the old agent used the dedicated
+   Serena image (even with no `SERENA_*` entries in `.env`), the
+   migration guard will refuse provisioning until you explicitly
+   remove that old agent container after backing up the state.
 
 If the old installation used the default local Serena bind directory
 `./volumes/serena/<project-key>`, the generic module resolves the
@@ -108,14 +111,24 @@ Do not remove the old Podman volume until configuration, projects and
 Serena indexing are verified. Project-level memories under
 `PROJECT_DIR/.serena/memories/` remain with the source checkout.
 
-Build and switch only after migration:
+Build and switch only after migration, with the old container intentionally
+removed **after** you have backed up its state and verified the generic
+Serena persistent mount is the same intended directory:
 
 ```bash
 make deps-validate
 make build-project
-make recreate-agent
+make remove-agent      # explicit migration step; preserves named/bind volumes
+make up                # creates the Project image-based agent
 make doctor
 ```
+
+For already migrated Project image agents, use `make recreate-agent`
+instead. The migration guard checks both legacy `.env` keys and the
+actual existing Podman Compose agent's image/environment, so a legacy
+default-config installation cannot silently lose its active Serena MCP.
+An existing generic Project image with a `/root/.serena` Agent Tool mount
+continues to be supported.
 
 `make start` merely resumes previously stopped containers and **cannot
 switch an existing legacy Serena image** to the generic Project image.

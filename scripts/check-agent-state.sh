@@ -28,6 +28,6 @@ if os.path.realpath(actual_path) != want_path or not correct_storage:
     print("ERROR: existing agent uses another project path or Codex state volume", file=sys.stderr)
     print(f"Expected workspace: {want_path}", file=sys.stderr)
     print(f"Expected CODEX_HOME mount: {expected_type} {expected_source if expected_type == 'bind' else expected_volume}", file=sys.stderr)
-    print("Stop/save active turns, then use make recreate-agent (or make up-serena).", file=sys.stderr)
+    print("Stop/save active turns, then use make recreate-agent (or make up with the generic MCP module).", file=sys.stderr)
     raise SystemExit(1)
 PY

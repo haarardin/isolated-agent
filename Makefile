@@ -109,7 +109,7 @@ memory-info:
 	@printf 'Codex (%s):        %s -> /root/.codex\n' "$(CODEX_STATE_MOUNT_TYPE)" "$(CODEX_STATE_MOUNT_SOURCE)"
 
 preflight:
-	@python3 scripts/check-legacy-serena.py
+	@PODMAN="$(PODMAN)" python3 scripts/check-legacy-serena.py --project "$(COMPOSE_PROJECT_NAME)" --project-image "$(PROJECT_IMAGE)" --podman "$(PODMAN)"
 	@bash scripts/preflight.sh
 	@python3 scripts/network-preflight.py --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
@@ -274,6 +274,7 @@ down-example: deps-generate
 
 migrate-network:
 	@test "$(CONFIRM)" = "YES" || { echo "Set CONFIRM=YES; stop active Codex sessions first"; exit 1; }
+	@PODMAN="$(PODMAN)" python3 scripts/check-legacy-serena.py --project "$(COMPOSE_PROJECT_NAME)" --project-image "$(PROJECT_IMAGE)" --podman "$(PODMAN)"
 	@bash scripts/migrate-network.sh
 	@$(MAKE) up
 
