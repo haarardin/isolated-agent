@@ -198,18 +198,18 @@ If you were not logged in previously, run `make login` after recreation.
 If Android was paired already, **test the existing connection first**;
 only re-run `make remote-pair` if pairing is lost.
 
-For **Serena-enabled** agents, configure the generic \`[[agent_tools]]\`
+For **Serena-enabled** agents, configure the generic `[[agent_tools]]`
 manifest (see [Serena setup](serena.md)), then use exactly the same
 Project image and lifecycle as other modules:
 
-\`\`\`bash
+```bash
 make deps-validate
 make build-project
 make recreate-agent
 make network-check
 make remote-start
 make remote-doctor
-\`\`\`
+```
 
 A legacy Serena image/Compose deployment must first migrate its state
 as documented in the Serena guide; do not delete the old Podman volumes.
