@@ -3,6 +3,15 @@ FROM ${BASE_IMAGE}
 
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
     && codex --version
+# The official installer puts ~/.local/bin/codex behind CODEX_HOME
+# (normally a symlink to ~/.codex/packages/standalone/current/codex).
+# A fresh host bind on CODEX_HOME masks that path. Install an independent
+# executable outside ALL runtime mounts, and fail during build if absent.
+# Do not move Codex's persistent auth/history/packages into the image.
+RUN test -x /root/.codex/packages/standalone/current/codex \
+    && install -m 0755 /root/.codex/packages/standalone/current/codex /usr/local/bin/codex \
+    && test -x /usr/local/bin/codex \
+    && /usr/local/bin/codex --version
 # The persistent codex-state volume masks the image's /root/.codex folder.
 # Stage the standalone managed CLI for the remote-control daemon so the
 # entrypoint can seed it without clobbering user auth/history.
