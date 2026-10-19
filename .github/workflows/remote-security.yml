@@ -46,7 +46,7 @@ jobs:
           python3 scripts/dependencies.py generate
           for profile in base web example serena; do
             case "$profile" in
-              base) files="-f compose.yaml";;
+              base) files="-f compose.yaml -f .generated/compose.tools.yaml";;
               web) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml";;
               example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml";;
               serena) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml";;
@@ -134,6 +134,35 @@ jobs:
           assert mounts["/root/.serena"]["source"].startswith(str(Path.cwd() / "volumes" / "serena"))
           assert agent["read_only"] is True
           print("Embedded Serena persisted volume Compose config validated")
+          PY
+          # Actual offline profile contract: embedded + sidecar, no Squid.
+          cp dependencies/examples/go-serena.toml /tmp/offline-tools.toml
+          cat >> /tmp/offline-tools.toml <<'TOML'
+          [[agent_tools]]
+          id = "sidecar-check"
+          kind = "mcp"
+          placement = "sidecar"
+          enabled = true
+          [agent_tools.runtime]
+          command = ["/bin/true"]
+          port = 8787
+          [agent_tools.integration]
+          transport = "http"
+          path = "/mcp"
+          TOML
+          python3 scripts/dependencies.py generate --config /tmp/offline-tools.toml
+          docker compose -f compose.yaml -f .generated/compose.tools.yaml config --format json >/tmp/offline-tools.json
+          python3 - <<'PY'
+          import json
+          import os
+          x=json.load(open("/tmp/offline-tools.json"))
+          assert set(x["services"]) == {"agent", "tool-sidecar-check"}
+          mounts={m["target"]:m for m in x["services"]["agent"]["volumes"]}
+          assert mounts["/root/.serena"]["type"]=="bind"
+          assert mounts["/root/.codex"]["source"]==os.environ["CODEX_STATE_MOUNT_SOURCE"]
+          side=x["services"]["tool-sidecar-check"]
+          assert side["read_only"] is True
+          assert next(m for m in side["volumes"] if m["target"]=="/workspace")["read_only"] is True
           PY
           python3 scripts/dependencies.py generate
 
