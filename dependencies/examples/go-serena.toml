@@ -30,6 +30,11 @@ verify = ["gopls version"]
 # Global Serena runtime state remains in the usual project-local
 # volumes/serena/<project-key> directory. Project memories stay under
 # PROJECT_DIR/.serena/memories/.
+# Serena 1.7: project-level ls_specific_settings are ignored for untrusted
+# repositories. If you also enable C/C++ via [language_servers] cpp,
+# put ls_specific_settings.cpp.ls_path = /usr/bin/clangd in the user-owned
+# /root/.serena/serena_config.yml (persistent, mounted over the image).
+# See docs/dependencies.md "Serena 1.7 and local C/C++ language servers".
 [agent_tools.state]
 base = "./volumes/serena"
 target = "/root/.serena"
