@@ -115,6 +115,26 @@ jobs:
           assert x['services']['agent']['networks'] == {'isolated-dev': None} or set(x['services']['agent']['networks']) == {'isolated-dev'}
           print('Separate Compose projects can share a network without ambiguous proxy alias')
           PY
+          # Regression for embedded Serena persisted under /root/.serena:
+          # no sidecars + an agent volume used to emit an invalid trailing {}.
+          python3 scripts/dependencies.py generate --config dependencies/examples/go-serena.toml
+          docker compose -f compose.yaml -f compose.web.yaml \
+            -f .generated/compose.tools.yaml config --format json > /tmp/serena-embedded.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          overlay = Path(".generated/compose.tools.yaml").read_text()
+          assert not overlay.rstrip().endswith("{}"), overlay
+          config = json.loads(Path("/tmp/serena-embedded.json").read_text())
+          agent = config["services"]["agent"]
+          mounts = {v["target"]: v for v in agent["volumes"]}
+          assert {"/workspace", "/root/.codex", "/root/.cache", "/root/.serena"} <= set(mounts), mounts
+          assert mounts["/root/.serena"]["type"] == "bind"
+          assert mounts["/root/.serena"]["source"].startswith(str(Path.cwd() / "volumes" / "serena"))
+          assert agent["read_only"] is True
+          print("Embedded Serena persisted volume Compose config validated")
+          PY
+          python3 scripts/dependencies.py generate
 
       - name: Squid ACL syntax check with generated CIDRs
         run: |
