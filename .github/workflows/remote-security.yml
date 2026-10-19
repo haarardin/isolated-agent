@@ -190,6 +190,62 @@ jobs:
               fi
             '
 
+      - name: Smoke Serena 1.7 LSP with system clangd and persistent state (offline)
+        run: |
+          set -euo pipefail
+          # Separate fixture image; preserve the neutral Project image used by
+          # other security/memory tests and restore generated files afterwards.
+          python3 scripts/dependencies.py generate --config dependencies/examples/serena-cpp-ci.toml
+          docker build -f .generated/Containerfile.dependencies \
+            --build-arg CODEX_IMAGE=localhost/isolated-agent-codex:dev \
+            -t localhost/isolated-agent-dependencies:ci-serena-cpp .
+          docker build -f images/project/Containerfile \
+            --build-arg DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:ci-serena-cpp \
+            -t localhost/isolated-agent-project:ci-serena-cpp .
+          python3 scripts/dependencies.py generate
+
+          scratch="$(mktemp -d)"
+          trap 'sudo rm -rf "$scratch"' EXIT
+          mkdir -p "$scratch/workspace/.serena" "$scratch/serena" "$scratch/codex"
+          cat > "$scratch/workspace/.serena/project.yml" <<'YAML'
+          project_name: isolated-serena-cpp-ci
+          language_servers:
+            - cpp
+          language_backend: LSP
+          ls_specific_settings:
+            cpp:
+              ls_path: /bad/project-supplied/clangd
+          YAML
+          cat > "$scratch/workspace/test.c" <<'C'
+          int sum(int a, int b) { return a + b; }
+          int caller(void) { return sum(1, 2); }
+          C
+
+          # The project-specific ls_path above must be ignored because
+          # /workspace is NOT trusted. Our global binding still starts
+          # Debian clangd without any network access or archive extraction.
+          for attempt in 1 2; do
+            docker run --rm --network none --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --tmpfs /run:rw,nosuid,nodev,size=64m \
+              --tmpfs /root/.cache:rw,nosuid,nodev,size=128m \
+              -e CODEX_PROJECT_KEY=eeeeeeeeeeeeeeeeeeeeeeee \
+              -v "$scratch/workspace:/workspace:rw" \
+              -v "$scratch/codex:/root/.codex:rw" \
+              -v "$scratch/serena:/root/.serena:rw" \
+              localhost/isolated-agent-project:ci-serena-cpp \
+              bash -ec '
+                bash /usr/local/bin/isolated-agent-tool-lsp-runtime check
+                bash /usr/local/bin/isolated-agent-tool-lsp-runtime probe
+              '
+          done
+          grep -Fq 'ls_path: /usr/bin/clangd' "$scratch/serena/serena_config.yml"
+          if grep -Rq 'Downloading from https://github.com/clangd' "$scratch/serena/logs"; then
+            echo "Unexpected managed clangd download attempt" >&2
+            exit 1
+          fi
+          echo "Serena cpp language server initialized twice offline with persistent state"
+
       - name: Verify projectless Remote workspace on read-only root
         run: |
           scratch="$(mktemp -d)"
