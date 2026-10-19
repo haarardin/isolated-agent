@@ -21,6 +21,12 @@ class NetworkMigrationComposeTests(unittest.TestCase):
                          "compose.yaml", "compose.web.yaml",
                          "compose.example-services.yaml"]:
                 shutil.copy2(ROOT/path, root/path)
+            # Exercise an enabled generic MCP sidecar, not just an empty overlay.
+            (root/"dependencies/scripts").mkdir()
+            shutil.copy2(ROOT/"dependencies/examples/ci-smoke.toml",
+                         root/"dependencies/dependencies.toml")
+            shutil.copy2(ROOT/"dependencies/scripts/install-ci-smoke.sh",
+                         root/"dependencies/scripts/install-ci-smoke.sh")
             fake_podman = root/"bin/podman"
             fake_podman.write_text("""#!/usr/bin/env bash
 if [[ "$1 $2 $3" == 'ps -a -q' ]]; then exit 0; fi
@@ -57,6 +63,8 @@ printf '%s\\n' "$*" >> "$FAKE_COMPOSE_LOG"
                                     cwd=root, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             self.assertTrue((root/".generated/compose.tools.yaml").exists())
+            self.assertIn("tool-ci-mcp",
+                          (root/".generated/compose.tools.yaml").read_text())
             actual = (root/"compose.log").read_text().strip()
             self.assertIn(".generated/compose.tools.yaml", actual)
             self.assertNotIn("compose.serena.yaml", actual)
