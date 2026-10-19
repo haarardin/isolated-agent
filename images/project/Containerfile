@@ -41,9 +41,12 @@ RUN test ! -e /root/Documents && test ! -L /root/Documents \
 COPY ${CODEX_AGENTS_FILE} /opt/isolated-agent/AGENTS.md
 COPY images/project/entrypoint.sh /usr/local/bin/isolated-agent-entrypoint
 COPY .generated/codex-mcp.toml /opt/isolated-agent/codex-mcp.toml
+COPY .generated/tool-lsp.json /opt/isolated-agent/tool-lsp.json
+COPY scripts/tool-lsp-configure.py /usr/local/bin/isolated-agent-tool-lsp-configure
+COPY scripts/tool-lsp-runtime.sh /usr/local/bin/isolated-agent-tool-lsp-runtime
 COPY scripts/claim-state.sh /usr/local/bin/isolated-agent-claim-state
 
-RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint /usr/local/bin/isolated-agent-claim-state \
+RUN chmod 0755 /usr/local/bin/isolated-agent-entrypoint /usr/local/bin/isolated-agent-claim-state /usr/local/bin/isolated-agent-tool-lsp-configure /usr/local/bin/isolated-agent-tool-lsp-runtime \
     && touch /root/.codex/.isolated-agent-volume-template \
     && mkdir -p /etc/codex /opt/isolated-agent \
     && { \
