@@ -79,6 +79,23 @@ class DependencyTests(unittest.TestCase):
                 compose = (out / "compose.tools.yaml").read_text()
                 self.assertIn("agent:", compose)
                 self.assertIn("/root/.helper:rw", compose)
+                # Regression: no sidecars + embedded persistent state used to
+                # append "{}" to the last volume entry, producing invalid YAML.
+                self.assertNotIn(":rw\" {}", compose)
+                self.assertTrue(compose.endswith(":rw\"\n"))
+                self.assertNotIn("services: {}", compose)
+
+    def test_serena_with_state_but_no_sidecar_ends_in_valid_volume(self):
+        cfg = deps.parse(ROOT / "dependencies/examples/go-serena.toml")
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("services:\n  agent:\n    volumes:\n", compose)
+            self.assertIn("/root/.serena:rw", compose)
+            self.assertEqual(len(compose.splitlines()), 4)
+            self.assertNotIn("{} ", compose)
+            self.assertTrue(compose.endswith(":rw\"\n"))
 
     def test_reject_apt_shell_injection(self):
         with self.assertRaises(ValueError):
