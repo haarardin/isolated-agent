@@ -1,5 +1,6 @@
 """Regression tests for generic dependency and Agent Tool generation."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -39,6 +40,55 @@ class DependencyTests(unittest.TestCase):
             self.assertIn("gopls@", img)
             self.assertEqual(mcp["mcp_servers"]["serena"]["command"],
                              "/opt/agent-tools/serena/bin/serena")
+            bindings = json.loads((out / "tool-lsp.json").read_text())
+            self.assertEqual(len(bindings), 1)
+            self.assertEqual(bindings[0]["adapter"], "serena")
+            self.assertEqual(bindings[0]["servers"], {"cpp": "/usr/bin/clangd"})
+            self.assertEqual(bindings[0]["python"], "/opt/agent-tools/serena/bin/python")
+            self.assertEqual(bindings[0]["state"], "/root/.serena")
+
+    def test_invalid_lsp_bindings_are_rejected(self):
+        good = {"id": "serena", "placement": "embedded", "kind": "mcp",
+                "integration": {"transport": "stdio", "command": "/opt/serena/bin/serena"},
+                "state": {"base": "./volumes/serena", "target": "/root/.serena"},
+                "lsp": {"adapter": "serena", "servers": {"cpp": "/usr/bin/clangd"}}}
+        for update in (
+            {"lsp": {"adapter": "unknown", "servers": {"cpp": "/usr/bin/clangd"}}},
+            {"lsp": {"adapter": "serena", "servers": {"cpp": "clangd"}}},
+            {"lsp": {"adapter": "serena", "servers": {"cpp": "/usr/bin/../clangd"}}},
+            {"lsp": {"adapter": "serena", "servers": {"cpp": "/usr/bin/clangd; bad"}}},
+            {"state": {"base": "./volumes/serena", "target": "/tmp/serena"}},
+            {"placement": "external"},
+        ):
+            cfg = {"apt": {"packages": []}, "agent_tools": [{**good, **update}]}
+            with tempfile.TemporaryDirectory() as td:
+                file = Path(td) / "invalid.toml"
+                # Test parse validation against temporary TOML through
+                # python's installed tomli-writer-free deterministic fixture.
+                fixture = """
+[[agent_tools]]
+id = "serena"
+placement = "%s"
+kind = "mcp"
+[agent_tools.state]
+base = "%s"
+target = "%s"
+[agent_tools.lsp]
+adapter = "%s"
+servers = { cpp = "%s" }
+[agent_tools.integration]
+transport = "stdio"
+command = "/opt/serena/bin/serena"
+""" % (
+                    cfg["agent_tools"][0]["placement"],
+                    cfg["agent_tools"][0]["state"]["base"],
+                    cfg["agent_tools"][0]["state"]["target"],
+                    cfg["agent_tools"][0]["lsp"]["adapter"],
+                    cfg["agent_tools"][0]["lsp"]["servers"]["cpp"],
+                )
+                file.write_text(fixture)
+                with self.assertRaises(ValueError):
+                    deps.parse(file)
 
     def test_generic_http_sidecar_and_external_tool(self):
         cfg = {"apt": {"packages": []},
