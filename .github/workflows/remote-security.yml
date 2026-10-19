@@ -258,6 +258,29 @@ jobs:
               fi
             '
           echo "Serena cpp language server initialized twice offline with persistent state"
+          # A conflicting user-owned ls_path must not be silently replaced.
+          # Mutate only this disposable CI state; production volumes remain safe.
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:rw" \
+            --entrypoint /bin/sh localhost/isolated-agent-project:ci-serena-cpp \
+            -ec 'sed -i "s@ls_path: /usr/bin/clangd@ls_path: /user/custom/clangd@" /state/serena_config.yml'
+          if docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --tmpfs /run:rw,nosuid,nodev,size=64m \
+            --tmpfs /root/.cache:rw,nosuid,nodev,size=128m \
+            -e CODEX_PROJECT_KEY=eeeeeeeeeeeeeeeeeeeeeeee \
+            -v "$scratch/workspace:/workspace:rw" \
+            -v "$scratch/codex:/root/.codex:rw" \
+            -v "$scratch/serena:/root/.serena:rw" \
+            localhost/isolated-agent-project:ci-serena-cpp true; then
+            echo "Conflicting existing Serena ls_path should have rejected agent startup" >&2
+            exit 1
+          fi
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:ro" \
+            --entrypoint /bin/sh localhost/isolated-agent-project:ci-serena-cpp \
+            -ec 'grep -Fq "ls_path: /user/custom/clangd" /state/serena_config.yml'
+
 
       - name: Verify projectless Remote workspace on read-only root
         run: |
