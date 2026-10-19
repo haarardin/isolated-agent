@@ -18,7 +18,7 @@ grep -Fq '/workspace/.serena/' templates/AGENTS.global.md
 
 grep -Fq 'Adapt this file and place it at the root of the target project as AGENTS.md.' templates/AGENTS.project.md
 
-grep -Fq -- '--project=/workspace' images/serena/Containerfile
+grep -Fq -- '--project=/workspace' dependencies/examples/go-serena.toml
 grep -Fq 'ARG DEPENDENCIES_IMAGE=' images/project/Containerfile
 grep -Fq 'FROM docker.io/library/debian:13-slim' images/base/Containerfile
 

@@ -31,7 +31,6 @@ assert "source: ${CODEX_STATE_MOUNT_SOURCE:-" in agent
 assert "prepare-state:" in mk
 assert "scripts/prepare-state.py" in mk
 assert "CODEX_STATE_VOLUME ?= ./volumes/codex" in mk
-assert "SERENA_STATE_VOLUME ?= ./volumes/serena" in mk
 assert "agent-cache:/root/.cache" in agent
 # Remote defaults to ~/Documents. It must resolve to the existing approved
 # workspace via an image-owned symlink, NOT a second host bind mount.
@@ -96,11 +95,10 @@ assert "CODEX_SANDBOX_MODE ?= danger-full-access" in mk
 print("Security and Remote Control static policy: OK")
 PY
 # Existing public Makefile targets must remain usable without remapping to new names.
-for goal in ensure-images up login codex shell doctor up-example up-serena test down; do
+for goal in ensure-images up login codex shell doctor up-example test down; do
   make -n "$goal" >/dev/null
 done
 # Check correct Compose combos (not raw outbound for agent).
 make -n up | grep -Fq 'compose.web.yaml'
 make -n offline | grep -Fq 'up -d agent'
-make -n up-serena-example | grep -Fq 'compose.serena.yaml up -d agent'
 echo "Makefile backward compatibility plans: OK"

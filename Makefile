@@ -12,23 +12,14 @@ CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(P
 # Each base directory receives a source-project fingerprint subdirectory.
 # A bare name (no slash) still selects a legacy Podman named volume.
 CODEX_STATE_VOLUME ?= ./volumes/codex
-SERENA_STATE_VOLUME ?= ./volumes/serena
 CODEX_STATE_MOUNT_TYPE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field mount-type)
 CODEX_STATE_MOUNT_SOURCE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field mount-source)
 CODEX_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind codex --storage "$(CODEX_STATE_VOLUME)" --field named-volume)
-SERENA_STATE_MOUNT_TYPE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field mount-type)
-SERENA_STATE_MOUNT_SOURCE := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field mount-source)
-SERENA_NAMED_VOLUME := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --kind serena --storage "$(SERENA_STATE_VOLUME)" --field named-volume)
 # Explicit, one-time opt-in only for a pre-existing, unbound volume.
 CODEX_BIND_EXISTING_STATE ?= false
-SERENA_BIND_EXISTING_STATE ?= false
 # Explicit opt-in required when a selected named volume does not exist.
 CODEX_CREATE_NAMED_VOLUME ?= false
-SERENA_CREATE_NAMED_VOLUME ?= false
-export PROJECT_DIR CODEX_PROJECT_KEY CODEX_STATE_VOLUME SERENA_STATE_VOLUME
 export CODEX_STATE_MOUNT_TYPE CODEX_STATE_MOUNT_SOURCE CODEX_NAMED_VOLUME
-export SERENA_STATE_MOUNT_TYPE SERENA_STATE_MOUNT_SOURCE SERENA_NAMED_VOLUME
-export CODEX_BIND_EXISTING_STATE SERENA_BIND_EXISTING_STATE
 AGENT_SUBNET ?= auto
 # Independent from COMPOSE_PROJECT_NAME; same value intentionally shares a network.
 AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev
@@ -39,22 +30,15 @@ PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
-COMPOSE_SERENA ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
-COMPOSE_SERENA_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
 COMPOSE_OFFLINE ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml
 COMPOSE_TOOLS ?= $(COMPOSE_WEB)
 COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
-COMPOSE_OFFLINE_SERENA ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml
 
 BASE_IMAGE ?= localhost/isolated-agent-base:dev
 CODEX_IMAGE ?= localhost/isolated-agent-codex:dev
 DEPENDENCIES_IMAGE ?= localhost/isolated-agent-dependencies:dev
 PROJECT_IMAGE ?= localhost/isolated-agent-project-$(CODEX_PROJECT_KEY):dev
-SERENA_IMAGE ?= localhost/isolated-agent-serena-$(CODEX_PROJECT_KEY):dev
-SERENA_VERSION ?= 1.7.0
-SERENA_GOPLS_VERSION ?= v0.20.0
 # Prevent different projects on one host from sharing a baked MCP config image.
-export PROJECT_IMAGE SERENA_IMAGE
 
 PROJECT_APT_PACKAGES ?=
 CODEX_AGENTS_FILE ?= templates/AGENTS.global.md
@@ -74,7 +58,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example offline-serena preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image ensure-serena-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state build-serena up-serena up-serena-example codex-serena ps-serena ps-serena-example serena-doctor test-serena-static down-serena down-serena-example
+.PHONY: start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -82,15 +66,9 @@ help:
 	  'make doctor         Check the running agent toolchain/runtime' \
 	  'make build          Build Base, Codex, Dependencies and Project images' \
 	  'make deps-plan     Inspect generated tools and MCP configuration' \
-	  'make build-serena   Force-build optional Serena + gopls layer' \
-	  'make ensure-images  Reuse existing images; build only missing layers' \
+	  'make ensure-images  Reuse Base, Codex and Project images; build only missing' \
 	  'make test-image-reuse-static Validate image reuse logic without Podman' \
 	  'make test-project-context-static Validate /workspace project context rules' \
-	  'make up-serena      Switch agent to Serena image' \
-	  'make up-serena-example Recreate agent; keep example services' \
-	  'make codex-serena   Open Codex with Serena available' \
-	  'make serena-doctor  Verify Serena, gopls and MCP registration' \
-	  'make test-serena-static Check optional integration without Podman' \
 	  'make up             Start agent with filtered Squid egress' \
 	  'make start          Restart only previously running project containers, without recreating' \
 	  'make stop           Stop all running containers in this Compose project, preserving them' \
@@ -127,7 +105,6 @@ memory-info:
 	@printf 'Project path:         %s\n' "$(abspath $(PROJECT_DIR))"
 	@printf 'Project key:          %s\n' "$(CODEX_PROJECT_KEY)"
 	@printf 'Codex (%s):        %s -> /root/.codex\n' "$(CODEX_STATE_MOUNT_TYPE)" "$(CODEX_STATE_MOUNT_SOURCE)"
-	@printf 'Serena (%s):       %s -> /root/.serena\n' "$(SERENA_STATE_MOUNT_TYPE)" "$(SERENA_STATE_MOUNT_SOURCE)"
 	@printf '%s\n' 'Serena project memories remain in PROJECT_DIR/.serena/memories/'
 
 preflight:
@@ -141,7 +118,7 @@ network-ensure: preflight
 	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 prepare-state:
-	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --serena-type "$(SERENA_STATE_MOUNT_TYPE)" --serena-source "$(SERENA_STATE_MOUNT_SOURCE)" --serena-named-volume "$(SERENA_NAMED_VOLUME)" --serena-create-named-volume "$(SERENA_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"
+	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"
 
 prepare-web: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/prepare-web.sh
@@ -187,12 +164,10 @@ build: build-base build-codex build-project
 # host. Podman image storage is shared by tag for the current host user, so
 # reuse an existing image instead of invoking a redundant build.
 #
-# This intentionally checks only image existence. If project-specific build
-# image-level inputs changed (for example CODEX_AGENTS_FILE,
-# PROJECT_APT_PACKAGES or Codex system defaults), use
-# make build-project && make build-serena to refresh them. Project-specific
+# This intentionally checks only image existence. If project-level inputs
+# change, use make build-project. Project-specific
 # context should normally live under PROJECT_DIR (/workspace) instead.
-ensure-images: ensure-serena-image
+ensure-images: ensure-project-image
 
 ensure-base-image:
 	@if $(PODMAN) image exists "$(BASE_IMAGE)"; then \
@@ -216,14 +191,6 @@ ensure-project-image: ensure-codex-image
 	else \
 		printf 'Image missing, building: %s\n' "$(PROJECT_IMAGE)"; \
 		$(MAKE) build-project; \
-	fi
-
-ensure-serena-image: ensure-project-image
-	@if $(PODMAN) image exists "$(SERENA_IMAGE)"; then \
-		printf 'Reusing existing image: %s\n' "$(SERENA_IMAGE)"; \
-	else \
-		printf 'Image missing, building: %s\n' "$(SERENA_IMAGE)"; \
-		$(MAKE) build-serena; \
 	fi
 
 test-image-reuse-static:
@@ -269,55 +236,6 @@ build-project: deps-build
 		-t $(PROJECT_IMAGE) \
 		.
 
-# The outer project image must exist before the optional layer is built.
-build-serena:
-	$(PODMAN) build \
-		-f images/serena/Containerfile \
-		--build-arg PROJECT_IMAGE="$(PROJECT_IMAGE)" \
-		--build-arg SERENA_VERSION="$(SERENA_VERSION)" \
-		--build-arg GOPLS_VERSION="$(SERENA_GOPLS_VERSION)" \
-		-t $(SERENA_IMAGE) \
-		.
-
-# Swapping image requires removing the previous agent container;
-# persistent codex-state and agent-cache volumes are deliberately untouched.
-# Do not invoke this while a Codex session is actively running.
-up-serena: prepare-web
-	$(COMPOSE_WEB) up -d squid
-	@$(MAKE) deps-tools-up
-	@bash scripts/remove-service.sh agent
-	$(COMPOSE_SERENA) up -d agent
-
-# Recreate only the agent: podman-compose up -d (without a service)
-# attempts to re-create existing PostgreSQL/Redis containers on some versions.
-# Bootstrap the optional services once with make up-example.
-up-serena-example: prepare-web
-	$(COMPOSE_WEB) up -d squid
-	@$(MAKE) deps-tools-up
-	@bash scripts/remove-service.sh agent
-	$(COMPOSE_SERENA_EXAMPLE) up -d agent
-
-codex-serena: deps-generate
-	$(COMPOSE_SERENA) exec agent codex
-
-serena-doctor:
-	@bash scripts/serena-doctor.sh
-
-test-serena-static:
-	@bash scripts/test-serena-static.sh
-
-ps-serena: deps-generate
-	$(COMPOSE_SERENA) ps
-
-ps-serena-example: deps-generate
-	$(COMPOSE_SERENA_EXAMPLE) ps
-
-down-serena: deps-generate
-	$(COMPOSE_SERENA) down
-
-down-serena-example: deps-generate
-	$(COMPOSE_SERENA_EXAMPLE) down
-
 # Unlike 'up', these targets do not invoke Compose or change images,
 # service profiles, networks, containers or persistent state. The checkpoint
 # lives in .state/ and remembers only services running before 'make stop'.
@@ -345,12 +263,6 @@ offline-example: network-ensure prepare-state deps-generate deps-tool-state deps
 	@bash scripts/check-agent-state.sh
 	@bash scripts/remove-service.sh squid
 	$(COMPOSE_OFFLINE_EXAMPLE) up -d
-
-offline-serena: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
-	@bash scripts/remove-service.sh squid
-	@bash scripts/remove-service.sh agent
-	@$(MAKE) deps-tools-up COMPOSE_TOOLS="$(COMPOSE_OFFLINE_SERENA)"
-	$(COMPOSE_OFFLINE_SERENA) up -d agent
 
 down: deps-generate
 	$(COMPOSE_WEB) down

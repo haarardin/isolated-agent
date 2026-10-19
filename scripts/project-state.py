@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive persistent per-source-project volume identities for Codex and Serena.
+"""Derive persistent per-source-project volume identity for Codex.
 
 The identity binds a Compose deployment and the canonical host PROJECT_DIR.
 Changing PROJECT_DIR therefore selects different persistent volumes by default.
@@ -31,7 +31,7 @@ def project_key(project_dir: str, compose_project: str) -> str:
 
 
 def volume_name(kind: str, key: str) -> str:
-    if kind not in {"codex", "serena"} or not re.fullmatch(r"[0-9a-f]{24}", key):
+    if kind != "codex" or not re.fullmatch(r"[0-9a-f]{24}", key):
         raise ValueError("Invalid volume kind or project key")
     return f"isolated-agent-{kind}-{key}"
 
@@ -44,7 +44,7 @@ def storage_spec(setting: str, kind: str, key: str) -> tuple[str, str, str]:
     Explicit legacy named volumes (no slash) keep their original name.
     The returned third field is the Compose top-level named-volume name.
     """
-    if kind not in {"codex", "serena"}:
+    if kind != "codex":
         raise ValueError("Invalid storage kind")
     if not setting:
         raise ValueError(f"Empty {kind} storage setting")
@@ -64,9 +64,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", required=True)
     parser.add_argument("--compose-project", required=True)
-    parser.add_argument("--field", choices=("key", "codex-volume", "serena-volume",
+    parser.add_argument("--field", choices=("key", "codex-volume",
                                           "mount-type", "mount-source", "named-volume"), required=True)
-    parser.add_argument("--kind", choices=("codex", "serena"))
+    parser.add_argument("--kind", choices=("codex",))
     parser.add_argument("--storage")
     args = parser.parse_args()
     try:
