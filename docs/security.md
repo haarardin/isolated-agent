@@ -80,5 +80,13 @@ SERENA_STATE_VOLUME persists global Serena data at /root/.serena;
 project-specific Serena memories stay at PROJECT_DIR/.serena/memories/.
 Both host directories survive container deletion and are excluded
 from Git. Legacy named volumes are also supported when explicitly selected.
+A missing explicitly named volume fails closed before Compose startup,
+unless `CODEX_CREATE_NAMED_VOLUME=true` or
+`SERENA_CREATE_NAMED_VOLUME=true` explicitly authorizes first creation.
+This is different from opt-in claiming a populated legacy volume.
+Declarative Agent Tool state cannot shadow protected mounts
+(`/root/.codex`, `/workspace`, `/root/.cache`, `/tmp`, `/run`)
+or another enabled tool's state mount. Disabled managed Sidecars are
+reconciled within their Compose project without removing persistent state.
 Never share one CODEX_HOME among concurrently running agents
 (SQLite and credential isolation). Backup only after stopping Codex.

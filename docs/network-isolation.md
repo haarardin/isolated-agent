@@ -102,9 +102,9 @@ in both modes; `HTTP_PROXY` alone is NOT a security boundary.
 
 ```bash
 make up              # filtered web, Squid on isolated + outbound
-make offline         # remove Squid container, no Internet gateway
+make offline         # remove Squid; launch enabled internal Agent Tools
 make up-example      # filtered web + postgres/redis
-make offline-example # offline with postgres/redis
+make offline-example # offline with postgres/redis and enabled sidecars
 make up-serena       # filtered web + Serena
 make network-check   # runtime checks; does NOT prove total isolation
 ```

@@ -128,8 +128,10 @@ args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transp
 ```
 
 The `cpp` executable must be installed separately with `apt.packages =
-["clangd"]` or another explicit install step. The adapter uses the same
-Python environment as the declared tool's executable. The currently
+["clangd"]` or another explicit install step. The current adapter assumes that a `python` executable resides next to
+the declared Serena MCP command (as in the example venv). Alternative
+pipx/symlink or wrapper layouts with Python elsewhere are not yet
+supported by this LSP adapter and may prevent agent startup. The currently
 implemented consumer adapter is `serena`. Unknown adapters are rejected
 at `make deps-validate`, rather than being silently ignored. Other tools
 can add their own adapters in future changes. Not all LSP implementations
@@ -149,7 +151,13 @@ error: they are never silently overwritten.
 
 Because the global Serena config lives in a project-scoped bind mount,
 the mapping survives agent removal and is applied idempotently on
-recreation. It does not add `/workspace` to the list of trusted
+recreation. **Known limitation:** removing `[agent_tools.lsp]` from TOML
+does not remove the previously written `ls_path` from persistent
+`/root/.serena/serena_config.yml`. If the executable was also removed,
+back up the global config and manually remove **only** the obsolete
+`ls_specific_settings.<language>.ls_path` entry, preserving unrelated
+user-owned settings. With no declared binding, `make doctor` does not
+detect the stale path. It does not add `/workspace` to the list of trusted
 project patterns. Image builds never bake credentials or mutable
 Serena global config into the image.
 
@@ -195,16 +203,21 @@ merely testing whether clangd is on PATH.
    On later restarts after make stop, use make start instead of make up.
 5. Check codex mcp list from agent shell.
 
-make deps-build rebuilds Dependencies and active sidecar images.
-make deps-tools-up brings up only enabled sidecars. Before starting a
-profile, make deps-reconcile removes disabled obsolete managed tool-*
-containers from the current Compose project only, preserving bind state
-and named volumes. Legacy tools are matched by their image namespace;
-unrelated services and other Compose projects are never removed.
-All online and offline Compose profiles include generated overlays.
-make offline starts enabled internal sidecars without Squid/outbound
-connectivity. make recreate-agent
-restarts the agent without deleting persistent CODEX_HOME/Serena state.
+`make deps-build` rebuilds Dependencies and enabled sidecar images.
+`make deps-tools-up` starts only enabled sidecars. Before provisioning,
+`make deps-reconcile` safely stops/removes obsolete managed `tool-*`
+containers belonging to the current Compose project, preserving volume
+state. Legacy tools are recognized by their isolated-agent image namespace;
+unrelated services and other projects are left alone.
+
+All online and offline provisioning profiles include the generated
+Agent Tools overlay. `make offline` and `make offline-serena` start
+enabled internal sidecars before the agent; `make offline-example`
+starts the overlay together with PostgreSQL/Redis. No Squid or
+direct outbound route is attached to offline agents/sidecars.
+`make recreate-agent` replaces only the agent, retaining persistent
+CODEX_HOME and Serena data. `make start` intentionally does **not**
+reconcile tools: it restores only previously saved containers.
 
 IMPORTANT: Changing dependencies currently requires a deliberate rebuild
 with make build-project (or make build). make up does NOT transparently
