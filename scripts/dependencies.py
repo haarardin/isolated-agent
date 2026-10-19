@@ -128,7 +128,7 @@ def parse(path=CONFIG):
         if not isinstance(tid, str) or not IDENT.fullmatch(tid) or tid in seen:
             err("Invalid/duplicate agent tool id: " + str(tid))
         seen.add(tid)
-        if set(tool) - {"id", "enabled", "placement", "kind", "install", "runtime", "integration", "state"}:
+        if set(tool) - {"id", "enabled", "placement", "kind", "install", "runtime", "integration", "state", "lsp"}:
             err("Unknown agent tool fields")
         if not isinstance(tool.get("enabled", True), bool):
             err("Tool enabled must be bool")
@@ -141,6 +141,24 @@ def parse(path=CONFIG):
         for i, step in enumerate(toolsteps):
             check_step(step, tid + ".install[" + str(i) + "]")
         run, it = tool.get("runtime", {}), tool.get("integration", {})
+        lsp = tool.get("lsp")
+        if lsp is not None:
+            if not isinstance(lsp, dict) or set(lsp) != {"adapter", "servers"}:
+                err(tid + ": lsp requires adapter and servers")
+            if lsp["adapter"] != "serena":
+                err(tid + ": unsupported LSP consumer adapter (currently: serena)")
+            servers = lsp["servers"]
+            if not isinstance(servers, dict) or not servers:
+                err(tid + ": lsp.servers must be nonempty")
+            for language, executable in servers.items():
+                if not isinstance(language, str) or not IDENT.fullmatch(language):
+                    err(tid + ": invalid LSP language identifier")
+                if not isinstance(executable, str) or not executable.startswith("/") or ".." in PurePosixPath(executable).parts or any(ch.isspace() for ch in executable):
+                    err(tid + ": LSP executable must be a safe absolute path")
+            if kind != "mcp" or where != "embedded" or tool.get("integration", {}).get("transport") != "stdio":
+                err(tid + ": Serena LSP binding requires embedded MCP stdio")
+            if tool.get("state", {}).get("target") != "/root/.serena":
+                err(tid + ": Serena LSP binding requires persistent /root/.serena state")
         state = tool.get("state", {})
         if not isinstance(state, dict) or set(state) - {"base", "target"}:
             err(tid + ": invalid tool state fields")
@@ -323,6 +341,22 @@ def generate(data, folder=OUT):
         compose[1] = "services: {}"
     (folder / "compose.tools.yaml").write_text("\n".join(compose) + "\n")
     (folder / "codex-mcp.toml").write_text("\n".join(mcp) + "\n")
+    # Consumer adapters are explicit. An empty file is a no-op at runtime.
+    lsp_bindings = []
+    for tool in enabled(data):
+        binding = tool.get("lsp")
+        if not binding:
+            continue
+        tool_bin = PurePosixPath(tool["integration"]["command"])
+        lsp_bindings.append({
+            "tool": tool["id"],
+            "adapter": binding["adapter"],
+            "state": tool["state"]["target"],
+            "python": str(tool_bin.parent / "python"),
+            "command": tool["integration"]["command"],
+            "servers": binding["servers"],
+        })
+    (folder / "tool-lsp.json").write_text(json.dumps(lsp_bindings, indent=2, sort_keys=True) + "\n")
     (folder / "project-commands.json").write_text(json.dumps(data.get("project", {}), indent=2) + "\n")
     digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode())
     for step in data.get("install", []) + [s for t in enabled(data) for s in t.get("install", [])]:
