@@ -162,13 +162,13 @@ deps-build: deps-generate
 	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
 
 deps-reconcile: deps-generate
-	@services="$(python3 scripts/dependencies.py sidecar-services)"; \
-	 PODMAN="$(PODMAN)" python3 scripts/reconcile-tool-sidecars.py --project "$(COMPOSE_PROJECT_NAME)" --enabled "$services"
+	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
+	 PODMAN="$(PODMAN)" python3 scripts/reconcile-tool-sidecars.py --project "$(COMPOSE_PROJECT_NAME)" --enabled "$$services"
 
 deps-tools-up: deps-generate deps-tool-state deps-reconcile
-	@services="$(python3 scripts/dependencies.py sidecar-services)"; \
-	if [ -n "$services" ]; then \
-		$(COMPOSE_TOOLS) up -d $services; \
+	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
+	if [ -n "$$services" ]; then \
+		$(COMPOSE_TOOLS) up -d $$services; \
 	else \
 		printf 'Agent Tools: no sidecars enabled; skipping Compose sidecar startup.\n'; \
 	fi
