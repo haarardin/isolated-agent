@@ -94,68 +94,90 @@ Go and gopls are installed ONLY because that example opts into them.
 Legacy make up-serena remains supported as a migration option and still
 installs Serena using its older specialized image, without mandatory gopls.
 
-## Serena 1.7 and local C/C++ language servers
+## Explicit Agent Tool LSP bindings (Serena adapter)
 
-For the language-server backend, Serena 1.7.0 normally downloads its own
-clangd for \`cpp\`, even when Debian's \`clangd\` is installed in
-Dependencies. Set \`ls_specific_settings.cpp.ls_path\` to
-\`/usr/bin/clangd\` to use the installed toolchain.
+Some consumers (including Serena 1.7) ignore `ls_specific_settings`
+from an untrusted project's `.serena/project.yml`. Serena then attempts
+its own managed clangd download, which fails on an isolated network.
+Installing `clangd` in the Dependencies image alone is insufficient.
 
-**Trust boundary:** Serena 1.6+ ignores project-level
-\`ls_specific_settings\` from \`/workspace/.serena/project.yml\`
-unless the project matches \`trusted_project_path_patterns\` in
-\`/root/.serena/serena_config.yml\`. Fresh Serena configurations
-trust no projects by default. Otherwise Serena may attempt to download
-and extract clangd and report \`cpp: Error extracting archive\`,
-which does not necessarily mean the filesystem or system clangd is broken.
+An optional **consumer binding** in the trusted Dependencies TOML connects
+each managed binary with the actual tool process that uses it:
 
-For untrusted projects, configure the user-owned, persistent global
-Serena config instead. From \`make shell\`, AFTER Serena has generated
-its global config:
+```toml
+[[agent_tools]]
+id = "serena"
+kind = "mcp"
+placement = "embedded"
 
-\`\`\`bash
-test -x /usr/bin/clangd
-test -f /root/.serena/serena_config.yml
-/opt/agent-tools/serena/bin/python - <<'PY'
-from pathlib import Path
-import shutil
-import yaml
+[agent_tools.state]
+base = "./volumes/serena"
+target = "/root/.serena"
 
-path = Path("/root/.serena/serena_config.yml")
-shutil.copy2(path, path.with_suffix(".yml.before-local-clangd"))
-data = yaml.safe_load(path.read_text()) or {}
-data.setdefault("ls_specific_settings", {}).setdefault("cpp", {})["ls_path"] = "/usr/bin/clangd"
-path.write_text(yaml.safe_dump(data, sort_keys=False))
-path.chmod(0o600)
-print("Using system clangd in persistent Serena global config")
-PY
-\`\`\`
+[agent_tools.lsp]
+adapter = "serena"
+servers = { cpp = "/usr/bin/clangd" }
 
-The backup preserves the original comments; the new YAML retains
-configuration values but not comments. The global Serena config resides
-in its per-project persistent bind mount. This approach does **not**
-mark arbitrary workspace repositories as trusted. Avoid putting global
-config changes into a Containerfile: that path is hidden by the bind mount.
+[agent_tools.integration]
+transport = "stdio"
+command = "/opt/agent-tools/serena/bin/serena"
+args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transport=stdio"]
+```
 
-Restart the **interactive Codex session** so it starts a fresh Serena MCP
-process, then check symbol overview again. You do **not** need to rebuild
-Go, GCC, clangd or the agent image for this global-config change.
+The `cpp` executable must be installed separately with `apt.packages =
+["clangd"]` or another explicit install step. The adapter uses the same
+Python environment as the declared tool's executable. The currently
+implemented consumer adapter is `serena`. Unknown adapters are rejected
+at `make deps-validate`, rather than being silently ignored. Other tools
+can add their own adapters in future changes. Not all LSP implementations
+support `ls_path`; declare only languages whose consumer accepts it.
+For Go, Serena currently locates `gopls` through `PATH`; the deep
+health check also confirms its actual startup.
 
-After generating the C/C++ project using CMake, ensure
-\`/workspace/compile_commands.json\` points to the build database, for
-example \`ln -sfn build/compile_commands.json /workspace/compile_commands.json\`.
-Then run:
+The generator writes `.generated/tool-lsp.json` into the Project image.
+The entrypoint then applies mappings to the **persistent** Serena
+`/root/.serena/serena_config.yml` (not project configuration). If a
+global config does not exist, Serena creates its own full defaults first.
+Changes are merged using a round-trip YAML parser; other global settings,
+comments, registered projects, and the trust allowlist are preserved.
+The adapter creates a backup on its first actual change. Existing
+`ls_path` values conflicting with the manifest cause a clear startup
+error: they are never silently overwritten.
 
-\`\`\`bash
-/opt/agent-tools/serena/bin/serena project health-check /workspace
-\`\`\`
+Because the global Serena config lives in a project-scoped bind mount,
+the mapping survives agent removal and is applied idempotently on
+recreation. It does not add `/workspace` to the list of trusted
+project patterns. Image builds never bake credentials or mutable
+Serena global config into the image.
 
-Serena runtime logs are under \`/root/.serena/logs/\`. Examine the
-actual archive download/extraction error there if it still occurs.
-Do not paste full logs unfiltered: they can contain project information.
+**After changing TOML:** Run `make deps-validate`,
+`make build-project`, `make recreate-agent`, then `make doctor`.
+Active Codex sessions must be closed first. For an existing image with
+no declared bindings, first add `[agent_tools.lsp]`; merely pulling
+the new PR code cannot change an already-built manifest.
 
-See the Serena upstream documentation about
-\`ls_specific_settings\`, trusted projects and \`compile_commands.json\`.
+`make doctor` checks that declared binary paths exist and the effective
+persisted Serena global `ls_path` settings match. Once your project
+contains source files, run `make lsp-doctor` for a **deep** check
+using `serena project health-check /workspace`. This starts the real
+language servers and requires analyzable files. It is intentionally
+separate so that `make doctor` still passes in an empty workspace and
+does not unexpectedly index a large codebase.
+
+For C/C++ projects, generate `compile_commands.json` through CMake,
+then place or link it at `/workspace/compile_commands.json` for
+accurate clangd symbols and references:
+
+```bash
+cmake -S /workspace -B /workspace/build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+ln -sfn build/compile_commands.json /workspace/compile_commands.json
+```
+
+The offline integration CI builds Serena + clangd, tests with an
+untrusted project that supplies a bogus project-level clangd path,
+and executes `project health-check` twice with persistent state.
+This catches the original archive-downloading failure rather than
+merely testing whether clangd is on PATH.
 
 ## Build and lifecycle
 
