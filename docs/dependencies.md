@@ -160,7 +160,11 @@ the new PR code cannot change an already-built manifest.
 persisted Serena global `ls_path` settings match. Once your project
 contains source files, run `make lsp-doctor` for a **deep** check
 using `serena project health-check /workspace`. This starts the real
-language servers and requires analyzable files. It is intentionally
+language servers and requires analyzable files. **Serena 1.7 skips source
+files of 1000 bytes or less**; the deep check will fail with
+`No analyzable files found` until at least one supported source file is
+larger. This is a Serena health-check limitation, not proof that the
+installed language server is broken. It is intentionally
 separate so that `make doctor` still passes in an empty workspace and
 does not unexpectedly index a large codebase.
 
