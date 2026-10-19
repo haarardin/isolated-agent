@@ -20,5 +20,5 @@ jobs:
       - name: Validate image reuse logic
         run: make test-image-reuse-static
 
-      - name: Validate Serena integration
-        run: make test-serena-static
+      - name: Validate generic embedded MCP/Serena fixture
+        run: python3 -m unittest discover -s tests -p 'test_dependencies.py' -v

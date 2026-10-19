@@ -74,12 +74,12 @@ verification below.
    IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.
 
-   Persistent state is stored by default in
-   `isolated-agent/volumes/codex/<project-key>` and
-   `isolated-agent/volumes/serena/<project-key>`. The folders are
-   created automatically at startup; no manual `mkdir` is needed.
-   The `.env.example` defaults are `CODEX_STATE_VOLUME=./volumes/codex`
-   and `SERENA_STATE_VOLUME=./volumes/serena`.
+   Codex state defaults to `isolated-agent/volumes/codex/<project-key>`
+   and is prepared automatically. Optional Agent Tools configure their
+   own persistent mounts in `dependencies/dependencies.toml` rather
+   than `.env`. For example, Serena uses `./volumes/serena/<project-key>`
+   only when its module is enabled. See [Serena migration](serena.md)
+   if upgrading an old Serena image or named volume.
 
 3. **Check dependencies, scripts and network topology.**
 
@@ -198,21 +198,21 @@ If you were not logged in previously, run `make login` after recreation.
 If Android was paired already, **test the existing connection first**;
 only re-run `make remote-pair` if pairing is lost.
 
-For **Serena-enabled** agents (only if you are actually using Serena):
+For **Serena-enabled** agents, configure the generic `[[agent_tools]]`
+manifest (see [Serena setup](serena.md)), then use exactly the same
+Project image and lifecycle as other modules:
 
 ```bash
+make deps-validate
 make build-project
-make build-serena
-make up-serena
+make recreate-agent
 make network-check
 make remote-start
 make remote-doctor
 ```
 
-Do **not** use ordinary `make recreate-agent` for this scenario: it
-targets `PROJECT_IMAGE`, not the Serena-derived image. For a new Serena
-environment first build the base and Codex layers (e.g. `make build`),
-then `make build-serena && make up-serena`.
+A legacy Serena image/Compose deployment must first migrate its state
+as documented in the Serena guide; do not delete the old Podman volumes.
 
 ## C. Existing older network: migrate **only if preflight rejects it**
 

@@ -77,9 +77,9 @@ make network-check
 make remote-start      # restart managed daemon after agent recreation
 ```
 
-Serena users should replace `make recreate-agent` with
-`make up-serena`. Old external networks and named volumes are not
-deleted when changing the name. `make migrate-network` is only for
+Optional Serena is deployed using the same `make recreate-agent`
+as other embedded tools. Old external networks and named volumes are
+not deleted when changing the name. `make migrate-network` is only for
 migrating the former insecure project-named network, and is **not**
 the way to switch to a shared network.
 
@@ -107,7 +107,6 @@ make up              # filtered web, Squid on isolated + outbound
 make offline         # remove Squid; launch enabled internal Agent Tools
 make up-example      # filtered web + postgres/redis
 make offline-example # offline with postgres/redis and enabled sidecars
-make up-serena       # filtered web + Serena
 make network-check   # runtime checks; does NOT prove total isolation
 ```
 

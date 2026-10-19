@@ -14,9 +14,18 @@ if [[ -n "${AGENT_NETWORK_NAME:-}" && "$AGENT_NETWORK_NAME" != "$name" ]]; then
   echo "Shared network $AGENT_NETWORK_NAME will not be removed. Inspect it manually." >&2
   exit 1
 fi
-echo "Stopping project Compose services without removing named volumes ..."
+# Refuse to mutate a legacy Serena deployment even when this script is
+# invoked directly (outside Make). No old volumes or mounts are removed.
+python3 scripts/check-legacy-serena.py --project "$project" --podman "${PODMAN:-podman}" --project-image "${PROJECT_IMAGE:-}"
+# This overlay must exist BEFORE Compose is asked to stop enabled Agent Tools.
+# Generation updates files under .generated/ only; it does not start services.
+python3 scripts/dependencies.py generate
+test -f .generated/compose.tools.yaml || {
+  echo "ERROR: generated Agent Tools Compose overlay is missing" >&2; exit 1;
+}
+echo "Stopping current project Compose services without deleting volumes ..."
 bash scripts/compose.sh -f compose.yaml -f compose.web.yaml \
-  -f compose.example-services.yaml -f compose.serena.yaml down
+  -f compose.example-services.yaml -f .generated/compose.tools.yaml down
 if podman network exists "$name"; then
   internal="$(podman network inspect "$name" --format '{{.Internal}}')"
   if [[ "$internal" != true ]]; then

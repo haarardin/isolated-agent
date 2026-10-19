@@ -62,7 +62,8 @@ isolated-agent/
   .env
   volumes/
     codex/<project-key>/        -> /root/.codex
-    serena/<project-key>/       -> /root/.serena
+    tools/...                  -> optional Agent Tool state
+    serena/<project-key>/       -> /root/.serena (only with a declared Serena tool)
 ```
 
 In `.env` (the defaults are also in `.env.example`):
@@ -73,23 +74,24 @@ PROJECT_DIR=/home/user/projects/backend
 CODEX_FEATURE_MEMORIES=true
 
 CODEX_STATE_VOLUME=./volumes/codex
-SERENA_STATE_VOLUME=./volumes/serena
 ```
 
-These two variables identify **host base directories**, not named
-volumes. The system automatically appends `<project-key>`, derived
+This variable identifies a **host base directory**, not a named
+volume. The system automatically appends `<project-key>`, derived
 from canonical `PROJECT_DIR` and `COMPOSE_PROJECT_NAME`; multiple
 projects in one isolated-agent checkout therefore get independent
 subdirectories and volume identity markers.
 
 ```bash
 make memory-info     # print exact resolved paths (no credentials)
-make up              # creates both missing directories before starting
+make up              # prepares Codex state and enabled Agent Tool state
 make recreate-agent  # deploy updated mount if agent already existed
 make remote-start    # only for Remote Control
 ```
 
-`make offline` and `make up-serena` also prepare the directories.
+`make offline` also prepares Codex and enabled Agent Tool state.
+Serena's persistent directory is configured through
+`[agent_tools.state]` in `dependencies/dependencies.toml`, not `.env`.
 The `volumes/` tree is gitignored. **Do not commit or share it**:
 it includes Codex authentication and session history.
 
@@ -97,7 +99,7 @@ Named volumes are **still supported for compatibility**. When
 `CODEX_STATE_VOLUME` is a bare name without a slash or leading
 `.` (for example `isolated-agent-demo_codex-state`), that exact
 existing Podman named volume is used; the equivalent behavior applies
-to `SERENA_STATE_VOLUME`. An explicit host path uses a bind mount.
+to Codex state only. An explicit host path uses a bind mount.
 
 The startup identity marker refuses accidental reuse of memory belonging
 to another project, including when the user explicitly supplies the
@@ -125,15 +127,12 @@ risk, explicitly keep the old volume name in `.env`:
 ```dotenv
 CODEX_STATE_VOLUME=isolated-agent-demo_codex-state
 CODEX_BIND_EXISTING_STATE=true
-# Optional if you also use an old Serena named volume:
-# SERENA_STATE_VOLUME=isolated-agent-demo_serena-state
-# SERENA_BIND_EXISTING_STATE=true
 ```
 
 Explicitly selected named volumes are now checked before Compose startup.
 A typo does not silently create a new blank home. To intentionally create a
 NEW named volume, temporarily set `CODEX_CREATE_NAMED_VOLUME=true`
-(or `SERENA_CREATE_NAMED_VOLUME=true`) in .env and turn it off after
+in .env and turn it off after
 startup. This is separate from `CODEX_BIND_EXISTING_STATE`, which opts
 in to claiming an already-populated legacy volume.
 
@@ -141,8 +140,7 @@ Before the first start, confirm the real name with `podman volume ls`,
 stop Codex and Remote Control, and export a backup using
 `podman volume export <volume-name> --output backup.tar`.
 
-Run `make build-project && make recreate-agent` (or rebuild
-the Serena image and use `make up-serena`). Once the identity marker
+Run `make build-project && make recreate-agent`. Once the identity marker
 has been written, change `CODEX_BIND_EXISTING_STATE` back to
 `false`. Your old named volume and its entire contents are retained.
 
@@ -156,9 +154,10 @@ directory. Do not extract an untrusted archive or move only the
 Verify authentication, sessions and native memories before deleting
 any old volume.
 
-`SERENA_STATE_VOLUME` only concerns **global** Serena state:
-project-level Serena memories remain in
-`PROJECT_DIR/.serena/memories/` and are preserved with that workspace.
+Optional Serena global state is configured like other Agent Tools using
+`[agent_tools.state]`; see [Serena setup and migration](serena.md).
+Project-level Serena memories remain in
+`PROJECT_DIR/.serena/memories/` and are preserved with the workspace.
 
 ## Default autonomous profile
 

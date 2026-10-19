@@ -32,8 +32,7 @@ output="$(
 for image in \
   localhost/isolated-agent-base:dev \
   localhost/isolated-agent-codex:dev \
-  "localhost/isolated-agent-project-${key}:dev" \
-  "localhost/isolated-agent-serena-${key}:dev"
+  "localhost/isolated-agent-project-${key}:dev"
 do
   printf '%s\n' "${output}" | grep -Fq "Reusing existing image: ${image}"
   grep -Fq "image exists ${image}" "${log}"

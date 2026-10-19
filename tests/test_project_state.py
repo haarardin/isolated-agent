@@ -32,8 +32,6 @@ class ProjectStateTests(unittest.TestCase):
             self.assertEqual(len(key1), 24)
             self.assertEqual(state.volume_name("codex", key1),
                              f"isolated-agent-codex-{key1}")
-            self.assertEqual(state.volume_name("serena", key1),
-                             f"isolated-agent-serena-{key1}")
 
     def test_changed_project_dir_and_compose_identity_never_share(self):
         with tempfile.TemporaryDirectory() as work:
@@ -64,13 +62,10 @@ class ProjectStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as work:
             root = pathlib.Path(work)
             codex = root / "volumes" / "codex" / KEY
-            serena = root / "volumes" / "serena" / KEY
             args = ["python3", str(preparation), "--codex-type", "bind",
-                    "--codex-source", str(codex), "--serena-type", "bind",
-                    "--serena-source", str(serena)]
+                    "--codex-source", str(codex)]
             subprocess.run(args, check=True, capture_output=True)
             self.assertTrue(codex.is_dir())
-            self.assertTrue(serena.is_dir())
             self.assertEqual(stat.S_IMODE(codex.stat().st_mode), 0o700)
             (codex / "memories.sqlite").write_bytes(b"not erased")
             subprocess.run(args, check=True, capture_output=True)
@@ -90,8 +85,6 @@ class ProjectStateTests(unittest.TestCase):
             preparation.ensure_path("volume", "codex-state", "Codex",
                                     named_volume="new_codex-state", create_named_volume=True)
             runner.return_value = subprocess.CompletedProcess([], 0, "", "")
-            preparation.ensure_path("volume", "serena-state", "Serena",
-                                    named_volume="legacy_serena-state")
             runner.return_value = subprocess.CompletedProcess([], 125, "", "no daemon")
             with self.assertRaisesRegex(RuntimeError, "cannot inspect"):
                 preparation.ensure_path("volume", "codex-state", "Codex",
@@ -150,15 +143,6 @@ class ProjectStateTests(unittest.TestCase):
             (folder / ".isolated-agent-project-key").unlink()
             self.assertNotEqual(self.claim(folder).returncode, 0)
 
-    def test_serena_global_state_volume_guard(self):
-        with tempfile.TemporaryDirectory() as work:
-            folder = pathlib.Path(work) / "serena-home"
-            folder.mkdir()
-            (folder / ".isolated-agent-volume-template").touch()
-            self.assertEqual(self.claim(folder, component="serena").returncode, 0)
-            (folder / "memories").mkdir()
-            self.assertNotEqual(self.claim(folder, OTHER, component="serena").returncode, 0)
-
     def test_guard_rejects_symlink_marker(self):
         with tempfile.TemporaryDirectory() as work:
             folder = pathlib.Path(work)
@@ -168,18 +152,16 @@ class ProjectStateTests(unittest.TestCase):
     def test_compose_and_makefile_volume_contract(self):
         mk = (ROOT / "Makefile").read_text()
         compose = (ROOT / "compose.yaml").read_text()
-        serena = (ROOT / "compose.serena.yaml").read_text()
         image = (ROOT / "images/project/Containerfile").read_text()
         self.assertIn("CODEX_STATE_VOLUME ?= ./volumes/codex", mk)
-        self.assertIn("SERENA_STATE_VOLUME ?= ./volumes/serena", mk)
         self.assertIn("CODEX_FEATURE_MEMORIES ?= true", mk)
+        self.assertNotIn("SERENA_STATE_VOLUME", mk)
+        self.assertFalse((ROOT / "compose.serena.yaml").exists())
         self.assertIn("source: ${CODEX_STATE_MOUNT_SOURCE:-", compose)
-        self.assertIn("source: ${SERENA_STATE_MOUNT_SOURCE:-", serena)
         self.assertIn("CODEX_PROJECT_KEY: ${CODEX_PROJECT_KEY:-}", compose)
         self.assertIn("ARG CODEX_FEATURE_MEMORIES=true", image)
         env = (ROOT / ".env.example").read_text()
         self.assertIn("CODEX_STATE_VOLUME=./volumes/codex", env)
-        self.assertIn("SERENA_STATE_VOLUME=./volumes/serena", env)
         self.assertIn("/volumes/", (ROOT / ".gitignore").read_text())
         self.assertIn("printf 'memories = %s", image)
 

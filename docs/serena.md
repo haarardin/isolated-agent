@@ -1,216 +1,153 @@
-# Serena MCP integration (legacy image compatibility)
+# Serena as a universal embedded MCP Agent Tool
 
-**Preferred for new projects:** install Serena as a generic embedded MCP
-Agent Tool through `dependencies/dependencies.toml`. See
-[Agent Tools and LSP configuration](dependencies.md) and the example
-`dependencies/examples/go-serena.toml` for the Go/gopls setup,
-persistent state and declarative clangd LSP bindings.
+Serena is **optional**. The agent's Debian Base, Codex and Project images
+contain no dedicated Serena installation. Install it exactly like any other
+embedded MCP tool by adding a `[[agent_tools]]` entry to
+`dependencies/dependencies.toml`. The example is
+[`dependencies/examples/go-serena.toml`](../dependencies/examples/go-serena.toml).
 
-This document primarily covers the **optional legacy Serena image**
-(`make build-serena` / `make up-serena`). It is no longer a required
-fourth baseline layer. Do not register both legacy and generic
-Serena MCP integrations in the same agent.
+## Configure and start
 
-## Why this integration
+The example explicitly opts into Python, Serena 1.7, Go, gopls and clangd.
+For non-Go projects, include only the language SDKs and language servers
+that the target project requires. Copy the relevant `[[agent_tools]]`
+entry, installation steps and state/LSP settings into your active TOML.
+The optional Go-specific `[project]` recipes are examples, not defaults.
 
-Serena provides semantic symbol lookup, references and targeted edits via MCP.
-For Go it uses `gopls`. Instead of repeatedly reading large source files, Codex
-can use Serena's symbol tools to load the relevant interfaces/implementations.
-**Token savings are a hypothesis, not a guarantee**: benchmark on a real repo.
+```toml
+[[agent_tools]]
+id = "serena"
+kind = "mcp"
+placement = "embedded"
+enabled = true
 
-Serena is a local subprocess of Codex with MCP over **stdio**. It is not a
-network service; no port, container runtime socket or additional capability
-is needed.
+[[agent_tools.install]]
+type = "command"
+run = "python3 -m venv /opt/agent-tools/serena && /opt/agent-tools/serena/bin/pip install --no-cache-dir 'serena-agent==1.7.0'"
 
-## Architecture
+[agent_tools.state]
+base = "./volumes/serena"
+target = "/root/.serena"
 
-```text
-rootless Podman (same baseline restrictions)
-  agent: isolated-agent-serena-<project-key>:dev (optional legacy image)
-    Codex CLI
-       |
-       +-- MCP stdio -> Serena 1.7.0 -> optional gopls
-       |
-       +-- SDKs/tests only if installed via Dependencies
-    /workspace               host PROJECT_DIR bind mount (RW)
-      AGENTS.md               project instructions
-      .codex/config.toml      project Codex overrides
-      .serena/                Serena project config/memories
-    /root/.codex             Codex runtime/user state (persisted)
-    /root/.cache             build/tool cache (persisted)
-    /root/.serena            Serena global settings/logs (persisted)
-    /etc/codex/config.toml   image-provided system defaults (read-only)
+[agent_tools.lsp]
+adapter = "serena"
+servers = { cpp = "/usr/bin/clangd" }
+
+[agent_tools.integration]
+transport = "stdio"
+command = "/opt/agent-tools/serena/bin/serena"
+args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transport=stdio", "--enable-web-dashboard=false", "--open-web-dashboard=false", "--enable-gui-log-window=false"]
 ```
 
-The Serena image inherits the project image and its entrypoint. The image-level
-global policy and Codex runtime state remain separate from repository context.
-
-Project-specific Codex and Serena context belongs under `/workspace`:
-`AGENTS.md`, `.codex/config.toml`, and `.serena/`.
-
-The MCP stanza is **not** written into project or user config; it is appended to
-the image's `/etc/codex/config.toml`. This keeps system integration policy
-separate from project-specific configuration.
-
-`SERENA_VERSION=1.7.0` pins the legacy Serena package.
-`SERENA_GOPLS_VERSION=v0.20.0` remains a compatibility Make argument,
-but the legacy image no longer installs `gopls`. To use Go semantic
-tools, explicitly install Go/gopls via Dependencies. The pinned Serena
-**v1.7.0** source release is MIT licensed;
-later upstream revisions may have different licensing. Review licenses
-before updating the pin or distributing images.
-
-## Install and first run
-
-From a checkout containing the legacy compatibility targets:
+This is an illustrative module configuration; install `python3`,
+`python3-venv` and `clangd` in `[apt].packages` as necessary.
+The `[agent_tools.lsp]` binding is optional for non-C/C++ usage but
+recommended for offline C/C++ with local clangd; declaring it requires
+an installed executable at `/usr/bin/clangd`. Serena's LSP adapter
+currently assumes Python beside the declared Serena executable.
 
 ```bash
-# Set PROJECT_DIR and COMPOSE_PROJECT_NAME in your local .env.
-# Configure Go/gopls in dependencies/dependencies.toml if required.
+make deps-validate
+make deps-plan
+make build-project       # regenerate dependencies and the Project image
+make up                  # first startup; starts only enabled Agent Tools
+make doctor
+make lsp-doctor          # deep Serena LSP check when source files exist
+make codex               # use /mcp to inspect registration
+```
+
+For an already-running container, **save/close Codex turns** and run
+`make recreate-agent` after rebuilding the image. Use
+`make up-example` only if you also require example PostgreSQL/Redis.
+There is no special `build-serena`, `up-serena` or Serena Compose profile.
+
+The generated MCP stanza appears in the Project image's
+`/etc/codex/config.toml`; no MCP port, host runtime socket or
+privileged container is required. Agent Tool state gets a project-scoped
+persistent host path and is mounted at `/root/.serena`. The source
+project's `/workspace/.serena` files live in the workspace bind mount.
+Serena is not installed or started if the TOML module is absent/disabled.
+
+## Migration from the removed legacy Serena layer
+
+PR #7 and older revisions exposed a dedicated
+`images/serena/Containerfile`, `compose.serena.yaml`, `make up-serena`,
+and `SERENA_STATE_VOLUME`. These interfaces have been **removed**.
+
+Before updating an existing deployment:
+
+1. Stop active Codex/Remote Control work and back up the **entire**
+   Codex state, Serena global state and workspace (including SQLite WAL
+   files). Do not run `make reset-state` or delete Podman volumes.
+2. Remove legacy `SERENA_IMAGE`, `SERENA_STATE_VOLUME`,
+   `SERENA_BIND_EXISTING_STATE`, `SERENA_CREATE_NAMED_VOLUME`,
+   `SERENA_VERSION` and `SERENA_GOPLS_VERSION` from `.env`
+   after recording their previous values.
+3. Add the generic Serena `[[agent_tools]]` configuration to
+   `dependencies/dependencies.toml`, including
+   `[agent_tools.state]` with `base = "./volumes/serena"` and
+   `target = "/root/.serena"`. If the old agent used the dedicated
+   Serena image (even with no `SERENA_*` entries in `.env`), the
+   migration guard will refuse provisioning until you explicitly
+   remove that old agent container after backing up the state.
+
+If the old installation used the default local Serena bind directory
+`./volumes/serena/<project-key>`, the generic module resolves the
+**same host directory** when `COMPOSE_PROJECT_NAME` and canonical
+`PROJECT_DIR` are unchanged. Existing global settings survive. The
+generator never clears the directory on startup.
+
+**If the old installation selected a named Serena Podman volume**, the
+generic Agent Tool format does **not** accept named volumes for tool
+state. Do not assume the existing state will be mounted or copied
+automatically. First identify and back up the volume with
+`podman volume ls` and `podman volume export NAME --output backup.tar`;
+then, with the agent stopped, restore its complete contents to the
+correct project-scoped bind directory under `./volumes/serena/`
+while preserving permissions/ownership. Inspect the
+`.isolated-agent-project-key` marker and verify it matches the expected
+project before switching; never overwrite another project's state.
+Do not remove the old Podman volume until configuration, projects and
+Serena indexing are verified. Project-level memories under
+`PROJECT_DIR/.serena/memories/` remain with the source checkout.
+
+Build and switch only after migration, with the old container intentionally
+removed **after** you have backed up its state and verified the generic
+Serena persistent mount is the same intended directory:
+
+```bash
+make deps-validate
 make build-project
-make build-serena
-make up-example        # one-time bootstrap, only for an empty example stack
-make up-serena-example # replace only the agent with the legacy Serena image
-make serena-doctor
-make codex-serena
+make remove-agent      # explicit migration step; preserves named/bind volumes
+make up                # creates the Project image-based agent
+make doctor
 ```
 
-For a new project, prefer the generic embedded MCP installation documented
-in [dependencies.md](dependencies.md) rather than the legacy image.
+For already migrated Project image agents, use `make recreate-agent`
+instead. The migration guard checks both legacy `.env` keys and the
+actual existing Podman Compose agent's image/environment, so a legacy
+default-config installation cannot silently lose its active Serena MCP.
+An existing generic Project image with a `/root/.serena` Agent Tool mount
+continues to be supported.
 
-`make up-serena` starts only the agent. `make up-serena-example`
-uses the Compose overlay with PostgreSQL/Redis endpoints, but **only
-recreates the agent**. This is intentional: some `podman-compose`
-versions attempt to create the already-running PostgreSQL and Redis
-containers a second time if invoked as `up -d` without a service name,
-raising a "container name ... already in use" error.
+`make start` merely resumes previously stopped containers and **cannot
+switch an existing legacy Serena image** to the generic Project image.
 
-**On a fresh/empty stack**, run `make up-example` once to bootstrap the
-example service containers, then `make up-serena-example` to switch
-only the agent to Serena. **On an already running stack**, run
-`make up-serena-example` directly; it keeps the existing PostgreSQL
-and Redis containers intact. The latter target does not start missing
-example services itself.
+## Diagnostics, limitations and safety
 
-Both Serena targets use our Podman service-label helper to
-remove/recreate the agent container and prevent silently reusing the
-non-Serena image. Do **not** run them during an active Codex session.
-Neither deletes `/workspace` nor persistent volumes.
+Run `make doctor` for runtime validation and `make lsp-doctor` when
+analyzable source exists. Serena 1.7 may skip files of 1000 bytes or
+less during health checks. In Codex, `/mcp` lists registered modules.
+For Go work, install gopls explicitly as in the example.
 
-To check MCP registration within Codex use `/mcp`. For the first
-semantic smoke test, try:
+The current LSP adapter only supports known Serena bindings and does
+not automatically remove previously written `ls_path` values from
+persistent `serena_config.yml` when a TOML LSP mapping is removed.
+Back up the file before manually cleaning obsolete values and preserve
+user-owned settings. Details: [LSP configuration](dependencies.md).
 
-> Use Serena to activate /workspace, list Go symbols in the health package,
-> find references to a selected function and describe its callers without
-> opening every file. Do not modify source files.
-
-On a real Go repository with a `.git` directory, Serena can also discover
-the project from cwd, but this layer uses explicit `--project=/workspace`
-so bind-mounted smoke projects without `.git` work too.
-
-## Writes and project-state hygiene
-
-Serena uses writable state:
-
-- `/root/.serena`: Serena global settings/logs (local bind directory `isolated-agent/volumes/serena/<project-key>` by default; optionally an old named volume)
-- `/root/.cache`: Python/LSP and Go build caches (existing named volume)
-- `/workspace/.serena/`: project configuration and optional Serena memories.
-  This directory is in your **source bind mount**, so it persists on the host.
-  It may appear during project activation/indexing.
-
-Do not accidentally commit generated `.serena/` artifacts into a production
-repository. Review contents first. If they should be local-only, prefer adding
-`.serena/` to that clone's `.git/info/exclude` so the shared repository
-`.gitignore` is unchanged. For shared project configuration, selectively
-commit only deliberate settings, not logs or generated memory content. Serena is explicitly allowed to edit
-`/workspace`, so always review changes on production branches.
-
-Dashboard and GUI are disabled in the MCP launch arguments so Serena will
-not open a browser or start a dashboard listener inside the container.
-
-## Diagnostics
-
-```bash
-make ps-serena-example
-make serena-doctor
-bash scripts/compose.sh exec agent codex mcp list
-bash scripts/compose.sh exec agent gopls version  # only if configured
-bash scripts/compose.sh exec agent ls -la /root/.serena
-bash scripts/compose.sh exec agent ls -la /workspace/.serena
-make test
-make race
-```
-
-The legacy doctor verifies inherited runtime restrictions, the Serena
-executable, writable Serena state and the MCP entry in Codex. It checks
-`gopls` only when present in PATH; for declarative Serena LSP validation
-use `make doctor` and `make lsp-doctor`. It does **not**
-prove the MCP handshake, index correctness or token reduction; verify
-those interactively with `/mcp` and the semantic smoke prompt.
-
-If the agent image was switched from a non-Serena image but was not
-recreated, run `make up-serena` again. Never fix Serena startup problems
-by enabling privileged mode or mounting the host Podman socket.
-
-To return to the baseline **without deleting credentials or caches**:
-
-```bash
-make recreate-agent
-```
-
-This invokes `up -d agent` using the baseline Compose files, so the
-standard project image is restored without attempting to recreate
-already-running PostgreSQL/Redis containers. Do **not** use
-`make remove-agent && make up-example` on a running example stack:
-that can trigger the same duplicate container-name error.
-The Serena global-state directory is independently resolved per source project; project-specific memories remain in `PROJECT_DIR/.serena/memories/`. The Serena global state bind directory remains after removing the
-container; the separately configured legacy named volume may be affected
-by destructive volume-reset commands.
-
-## Limitations and security
-
-- Python venv increases image size; there is no Python runtime requirement
-  on the Debian host.
-- Language servers can be CPU/memory intensive when indexing huge repos;
-  expect a heavier first-run and record memory consumption.
-- `gopls` must be installed in a path that will not be hidden by
-  `agent-cache` (we use `/usr/local/bin`).
-- Local Serena MCP runs with the same container-level access as Codex.
-  With `sandbox_mode = "danger-full-access"`, do not assume the MCP server
-  is a separate trust boundary. Do not mount host home, SSH keys or socket.
-- For confidential production source code, review dependencies, security
-  policy and data flow before using model-powered MCP operations.
-- `make test`/`make race` run only if corresponding `[project]` commands
-  are configured in `dependencies/dependencies.toml`; they do not
-  implicitly run Go tests in the neutral default image.
-
-## Benchmark before enabling Serena broadly
-
-Compare baseline Codex and Codex+Serena on the same real Go revision.
-Suggested tasks: locate all implementations of an interface, change a shared
-method across packages, update call-sites/tests, and explain the impact of a
-cross-package refactor.
-
-Capture:
-
-1. task success and passing tests;
-2. token counters (including cached and reasoning tokens) from Codex runs;
-3. wall-clock time, MCP calls and repeated command calls;
-4. indexing cost, memory use and additional image size.
-
-Evaluate several runs for each task. Do not infer savings solely from the
-size of individual Serena results. A startup/indexing overhead could
-outweigh reduced source reads for simpler tasks.
-
-### Default persistent local Serena folder
-
-`SERENA_STATE_VOLUME=./volumes/serena` in `.env.example` sets the base
-host directory inside the `isolated-agent` repository. The
-`<project-key>` subdirectory is created automatically by `make up-serena`
-(and other agent provisioning Make targets). It is mounted at `/root/.serena`;
-the folder persists when the container is deleted. The application-specific
-Serena project memories stay under `PROJECT_DIR/.serena/memories/`.
-
-To use a pre-existing Podman named volume instead, set a bare name such
-as `SERENA_STATE_VOLUME=isolated-agent-demo_serena-state` and follow the
-legacy state adoption instructions in [Codex config](codex-config.md#upgrading-an-existing-codex-volume).
+Serena executes with the same access as the Codex agent inside rootless
+Podman; it is **not** an additional security boundary. Review source
+changes and avoid sharing the same persistent state across unrelated
+projects. Indexing can be resource-intensive. Token savings remain
+a hypothesis to benchmark, not a guarantee.

@@ -36,10 +36,11 @@ make preflight       # must pass on a new project
 ```
 
 The migration stops Compose containers but **never uses down -v**.
-It retains codex-state, agent-cache, Serena and Postgres volumes. If you
-are using Serena or example services, restart the corresponding combination
-after migration (`make up-serena` or `make up-example`). Do not delete
-networks still used by other projects. Back up valuable state first.
+It retains Codex, optional module, cache and Postgres data. Restart the
+normal Compose project (or `make up-example` for example services)
+after migration. Modules such as Serena are selected in TOML, not
+via a special Compose profile. Do not delete shared networks.
+Back up valuable state first.
 
 We changed the Codex image and entrypoint so the managed standalone
 binary is seeded into the existing persistent CODEX_HOME volume when
@@ -49,8 +50,6 @@ image layers, even if make ensure-images would otherwise reuse them:
 ```bash
 make build-codex
 make build-project
-# Optional when using Serena:
-make build-serena
 make up
 make recreate-agent   # force deployment of the rebuilt image; preserves volumes
 make login             # one-time ChatGPT device authorization
@@ -62,8 +61,8 @@ make network-check
 `Containerfile` requires `make build-project && make recreate-agent`
 before starting Remote Control. The project image now includes the
 writable `/root/Documents -> /workspace` symlink used by projectless
-Android threads. For Serena, build its derived layer and use
-`make up-serena` instead. See the
+Android threads. Embedded Serena uses this same Project image and
+`make recreate-agent` lifecycle. See the
 [upgrade commands](REMOTE-START.md#b-upgrade-an-existing-agent-images-and-persistent-data-already-present).
 
 ## Headless remote commands
@@ -85,7 +84,7 @@ is **still running after `podman exec` exits**, rather than treating
 successful CLI invocation as proof. Multiple starts should be idempotent.
 
 A container recreation destroys its processes, but not CODEX_HOME.
-After `make up`, `make up-serena`, `make start`, or host reboot
+After `make up`, `make start`, or host reboot
 recovery, invoke `make remote-start` again: the managed daemon is a
 process, not an automatically restored service. A prior `make stop`
 allows `make start` to resume exactly the saved container set; without
@@ -166,7 +165,6 @@ To apply the change **after the agent is already running**:
 ```bash
 git pull --ff-only
 make build-project        # changed Containerfile: make up alone is not enough
-# Serena users also: make build-serena
 make recreate-agent       # only the agent is recreated, volumes are retained
 make remote-start         # managed daemon is a process; restart after recreation
 make remote-status
@@ -177,10 +175,11 @@ mkdir -p /root/Documents/Codex/remote-smoke
 test -d /workspace/Codex/remote-smoke
 ```
 
-For Serena deployments, use `make up-serena` instead of
-`make recreate-agent`, so the recreated agent still uses the Serena
-image. The symlink exists in that derived image **only after rebuilding
-its parent project image and Serena image**.
+Serena is an optional embedded MCP in the **same Project image**.
+After updating its TOML configuration, rebuild via
+`make build-project` and `make recreate-agent`.
+See [Serena migration](serena.md) for users of an older dedicated
+Serena image.
 
 Start a **new** Android Remote thread without a project and ask it to
 describe the work folder. If the same old thread retains an invalid path

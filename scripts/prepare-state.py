@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create selected persistent Codex / Serena bind directories on the host.
+"""Create/verify persistent Codex state on the host.
 
 Called by Make targets BEFORE Podman Compose container creation; does not
 alter existing content, delete volumes or rewrite Codex auth/session data.
@@ -56,23 +56,16 @@ def main() -> int:
     parser.add_argument("--codex-source", required=True)
     parser.add_argument("--codex-named-volume", default="")
     parser.add_argument("--codex-create-named-volume", default="false")
-    parser.add_argument("--serena-type", required=True)
-    parser.add_argument("--serena-source", required=True)
-    parser.add_argument("--serena-named-volume", default="")
-    parser.add_argument("--serena-create-named-volume", default="false")
     parser.add_argument("--podman", default="podman")
     args = parser.parse_args()
     try:
         previous = os.umask(0o077)
         try:
-            if args.codex_create_named_volume not in ("true", "false") or args.serena_create_named_volume not in ("true", "false"):
+            if args.codex_create_named_volume not in ("true", "false"):
                 raise ValueError("named-volume creation flags must be true/false")
             ensure_path(args.codex_type, args.codex_source, "Codex",
                         named_volume=args.codex_named_volume,
                         create_named_volume=args.codex_create_named_volume == "true", podman=args.podman)
-            ensure_path(args.serena_type, args.serena_source, "Serena",
-                        named_volume=args.serena_named_volume,
-                        create_named_volume=args.serena_create_named_volume == "true", podman=args.podman)
         finally:
             os.umask(previous)
     except (OSError, ValueError, RuntimeError) as exc:

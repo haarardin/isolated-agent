@@ -14,7 +14,7 @@ component="$4"
   echo "ERROR: $component project key missing or invalid; use make targets" >&2
   exit 2
 }
-[[ "$component" == codex || "$component" == serena ]] || exit 2
+[[ "$component" == codex ]] || exit 2
 [[ "$allow" == true || "$allow" == false ]] || {
   echo "ERROR: $component legacy state confirmation must be true or false" >&2
   exit 2

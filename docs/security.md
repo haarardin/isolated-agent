@@ -82,13 +82,16 @@ reuse even if a caller explicitly chooses the same volume name.
 A populated legacy volume without the marker requires deliberate
 one-time CODEX_BIND_EXISTING_STATE=true.
 
-SERENA_STATE_VOLUME persists global Serena data at /root/.serena;
-project-specific Serena memories stay at PROJECT_DIR/.serena/memories/.
-Both host directories survive container deletion and are excluded
-from Git. Legacy named volumes are also supported when explicitly selected.
-A missing explicitly named volume fails closed before Compose startup,
-unless `CODEX_CREATE_NAMED_VOLUME=true` or
-`SERENA_CREATE_NAMED_VOLUME=true` explicitly authorizes first creation.
+Additional tool state is mounted only when declared through
+`[agent_tools.state]` in the active manifest. Serena (if enabled)
+may persist its global state in `./volumes/serena/<project-key>`;
+project-specific memories remain in `PROJECT_DIR/.serena/memories/`.
+Host bind state directories survive container deletion and are excluded
+from Git. Existing Codex named volumes are supported when explicitly
+selected and verified; only `CODEX_CREATE_NAMED_VOLUME=true` can opt
+into creating a missing Codex named volume. Old named **Serena** volumes
+are not automatically reused: migrate their contents manually
+before changing the runtime.
 This is different from opt-in claiming a populated legacy volume.
 Declarative Agent Tool state cannot shadow protected mounts
 (`/root/.codex`, `/workspace`, `/root/.cache`, `/tmp`, `/run`)
