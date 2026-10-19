@@ -207,19 +207,19 @@ cp .env.example .env
 
 Set `PROJECT_DIR` in `.env` to the source directory the agent may access.
 
-Ensure all image layers are available:
+Build the generic agent (Base + Codex + Dependencies + Project):
 
 ```bash
-make ensure-images
+make deps-validate
+make deps-plan
+make build
 ```
 
-This is the preferred bootstrap command when the repository is cloned more than
-once on the same host. Rootless Podman image storage is shared for the current
-host user, so images with the same configured tags are reused instead of being
-built again.
-
-Use `make build` and `make build-serena` when you intentionally want to
-rebuild image layers.
+On an existing host, `make ensure-project-image` can reuse current tags
+and build only missing layers. It does **not** detect changed dependencies
+or configuration: use `make build-project` to apply those changes.
+`make ensure-images` also builds the optional legacy Serena image,
+which is unnecessary when Serena is configured as a generic Agent Tool.
 
 Start the agent with **filtered web egress** (internal network + Squid):
 
@@ -320,8 +320,9 @@ when updating an older container. Remote Android tasks may initialize
 `/root/Documents`, which the updated **project image** maps to
 `/workspace` using an image-baked symlink. Applying this requires
 `make build-project && make recreate-agent` (or rebuilding and starting
-the Serena image). No host port needs to be opened; rootless Podman
-isolation and the existing named volumes are retained.
+the Serena image). No host port needs to be opened; rootless Podman isolation
+and the selected persistent Codex/Serena bind directories (or
+explicit legacy named volumes) are retained.
 
 The Android host/pairing flow has been observed on an actual device,
 but successful execution of a whole remote turn must still be verified
@@ -698,13 +699,17 @@ This does not rely on the Compose model. It finds containers and networks carryi
 
 Persistent volumes are deliberately kept.
 
-To also delete the project's Codex state/cache/database volumes:
+To delete this Compose project's **named** volumes (including
+cache/database and any legacy Codex named volume):
 
 ```bash
 make reset-state
 ```
 
-Both commands are scoped by `COMPOSE_PROJECT_NAME`.
+Both commands scope container and labeled network/volume removal
+to `COMPOSE_PROJECT_NAME`. They do **not** remove repository-local
+`volumes/codex/<project-key>` and `volumes/serena/<project-key>`
+bind directories. Back them up and manage their deletion separately.
 
 
 ### Resetting only the example PostgreSQL data

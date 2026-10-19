@@ -7,8 +7,10 @@ pair an Android device, see
 
 ## Separate Compose and network identities
 
-`COMPOSE_PROJECT_NAME` names a deployment's containers and persistent
-volumes. **`AGENT_NETWORK_NAME` separately names its Podman bridge.**
+`COMPOSE_PROJECT_NAME` scopes a deployment's Compose containers and
+named volumes; the default Codex/Serena host bind state is also keyed
+by this identity and canonical `PROJECT_DIR`.
+**`AGENT_NETWORK_NAME` separately names its Podman bridge.**
 Leave the latter unset for the previous default
 `<COMPOSE_PROJECT_NAME>_isolated-dev`.
 

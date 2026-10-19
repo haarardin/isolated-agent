@@ -68,9 +68,10 @@ verification below.
    safely reuses an existing matching named network. For multiple
    independent clones, choose distinct `COMPOSE_PROJECT_NAME`.
    Set the same `AGENT_NETWORK_NAME` only for trusted projects that
-   must share a network;
-   this also prevents collisions in Compose-named volumes. To select
-   a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
+   must share a network. Distinct `COMPOSE_PROJECT_NAME` values
+   prevent Compose service and named-volume collisions.
+   To select a specific subnet, set `AGENT_SUBNET` to an unused
+   IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.
 
    Persistent state is stored by default in

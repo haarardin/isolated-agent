@@ -3,8 +3,13 @@
 Rootless Podman remains the **primary** sandbox. The agent is container
 root mapped to an unprivileged host user. Runtime image root filesystem
 is read-only, Linux capabilities are all dropped, and `no-new-privileges`
-is enabled. The agent only mounts PROJECT_DIR, codex-state and agent-cache;
-Serena adds its own named volume. An image-baked symlink maps
+is enabled. The agent mounts the approved PROJECT_DIR, the full
+Codex state (`/root/.codex`: a project-scoped bind directory by
+default, or an existing explicitly named legacy volume), and
+the `agent-cache` named volume. Optional Serena global state is
+bind-mounted from its own project-scoped directory by default.
+Agent Tools may declare additional reviewed state mounts.
+An image-baked symlink maps
 `/root/Documents` to the existing `/workspace` host bind for projectless
 Codex Remote Control sessions. No additional host directory is mounted.
 No host root, socket, SSH keys, privileged mode, host network or inbound
@@ -26,10 +31,11 @@ approved host `PROJECT_DIR`. Because remote users already have code
 execution authority within the writable workspace, use a disposable
 directory for untrusted experiments. The root remains read-only.
 
-The stored `/root/.codex` named volume contains sensitive auth tokens,
-session history, daemon settings and pairing/enrollment state. It
-survives normal `down`/recreation. Never run `make reset-state`
-unless its destruction is intended. Protect rootless host storage,
+The persisted `/root/.codex` state contains sensitive auth tokens,
+session history, daemon settings and pairing/enrollment state. Its
+default host bind directory survives normal `down`/recreation and
+`make reset-state`; this command **does** remove applicable labeled
+named volumes. Neither storage option replaces encrypted backups. Protect rootless host storage,
 backups, environment variables and Git working directories.
 
 `make remote-pair` prints a short-lived credential ONLY to the invoking
