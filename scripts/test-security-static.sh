@@ -26,7 +26,12 @@ assert "ipv6_enabled" in netcode and "IPv6Enabled" in netcode
 assert "internal: true" not in agent  # validated in actual Podman inspect
 assert "ipam:" not in agent  # managed per-project by network-ensure
 assert agent.count("      - isolated-dev")==1
-assert "codex-state:/root/.codex" in agent
+assert "target: /root/.codex" in agent
+assert "source: ${CODEX_STATE_MOUNT_SOURCE:-" in agent
+assert "prepare-state:" in mk
+assert "scripts/prepare-state.py" in mk
+assert "CODEX_STATE_VOLUME ?= ./volumes/codex" in mk
+assert "SERENA_STATE_VOLUME ?= ./volumes/serena" in mk
 assert "agent-cache:/root/.cache" in agent
 # Remote defaults to ~/Documents. It must resolve to the existing approved
 # workspace via an image-owned symlink, NOT a second host bind mount.

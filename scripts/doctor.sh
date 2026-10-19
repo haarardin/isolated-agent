@@ -15,22 +15,31 @@ set -eu
 
 printf "PATH:            %s\n" "$PATH"
 
-command -v go >/dev/null 2>&1 || {
-  printf "ERROR: go is not available in container PATH\n" >&2
-  printf "Expected Go binary at /usr/local/go/bin/go\n" >&2
-  exit 1
-}
-
 command -v codex >/dev/null 2>&1 || {
   printf "ERROR: codex is not available in container PATH\n" >&2
   exit 1
 }
 
-printf "Go:              "
-go version
+if command -v go >/dev/null 2>&1; then
+  printf "Go:              "
+  go version
+else
+  printf "Go:              not installed (optional)\n"
+fi
 
 printf "Codex:           "
 codex --version
+
+# A bare copied codex executable supports --version/login but cannot
+# bootstrap the default managed app-server daemon (Codex >=0.157).
+cli_executable="$(readlink -f "$(command -v codex)")"
+package_root="$(dirname "$(dirname "$cli_executable")")"
+if [ ! -f "$package_root/codex-package.json" ] ||
+   [ ! -x "$package_root/bin/codex-code-mode-host" ]; then
+  printf "ERROR: incomplete Codex runtime package for managed daemon: %s\n" "$cli_executable" >&2
+  exit 1
+fi
+printf "Codex package:   complete (%s)\n" "$package_root"
 
 workspace="$(pwd -P)"
 if [ "$workspace" != "/workspace" ]; then
@@ -83,5 +92,9 @@ fi
 printf "CODEX_HOME:       writable runtime state\n"
 printf "Cache:            writable runtime state\n"
 printf "Root filesystem:  read-only\n"
+# Check the effective global LSP bindings, not merely installed executables.
+# A full Serena symbol/LSP startup probe is available via make lsp-doctor.
+bash /usr/local/bin/isolated-agent-tool-lsp-runtime check
+
 printf "Runtime doctor:   OK\n"
 '

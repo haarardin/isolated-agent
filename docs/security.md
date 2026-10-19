@@ -3,8 +3,13 @@
 Rootless Podman remains the **primary** sandbox. The agent is container
 root mapped to an unprivileged host user. Runtime image root filesystem
 is read-only, Linux capabilities are all dropped, and `no-new-privileges`
-is enabled. The agent only mounts PROJECT_DIR, codex-state and agent-cache;
-Serena adds its own named volume. An image-baked symlink maps
+is enabled. The agent mounts the approved PROJECT_DIR, the full
+Codex state (`/root/.codex`: a project-scoped bind directory by
+default, or an existing explicitly named legacy volume), and
+the `agent-cache` named volume. Optional Serena global state is
+bind-mounted from its own project-scoped directory by default.
+Agent Tools may declare additional reviewed state mounts.
+An image-baked symlink maps
 `/root/Documents` to the existing `/workspace` host bind for projectless
 Codex Remote Control sessions. No additional host directory is mounted.
 No host root, socket, SSH keys, privileged mode, host network or inbound
@@ -26,10 +31,11 @@ approved host `PROJECT_DIR`. Because remote users already have code
 execution authority within the writable workspace, use a disposable
 directory for untrusted experiments. The root remains read-only.
 
-The stored `/root/.codex` named volume contains sensitive auth tokens,
-session history, daemon settings and pairing/enrollment state. It
-survives normal `down`/recreation. Never run `make reset-state`
-unless its destruction is intended. Protect rootless host storage,
+The persisted `/root/.codex` state contains sensitive auth tokens,
+session history, daemon settings and pairing/enrollment state. Its
+default host bind directory survives normal `down`/recreation and
+`make reset-state`; this command **does** remove applicable labeled
+named volumes. Neither storage option replaces encrypted backups. Protect rootless host storage,
 backups, environment variables and Git working directories.
 
 `make remote-pair` prints a short-lived credential ONLY to the invoking
@@ -63,3 +69,30 @@ bridge may contact one another's network services: this is **not**
 tenant isolation, and Squid's CIDR restrictions are not a firewall
 between these projects. Trust every project joining the network.
 Use project-qualified DNS aliases for proxy and database endpoints.
+
+## Codex native memory and state volumes
+
+The full CODEX_HOME, including native memory SQLite files, is bound
+to a project-specific host directory under
+`isolated-agent/volumes/codex/<project-key>` by default. The
+`CODEX_STATE_VOLUME` variable selects its base directory, and the
+directory is created before container startup. The project key is
+derived from Compose identity plus canonical host PROJECT_DIR. An in-volume identity marker refuses cross-project
+reuse even if a caller explicitly chooses the same volume name.
+A populated legacy volume without the marker requires deliberate
+one-time CODEX_BIND_EXISTING_STATE=true.
+
+SERENA_STATE_VOLUME persists global Serena data at /root/.serena;
+project-specific Serena memories stay at PROJECT_DIR/.serena/memories/.
+Both host directories survive container deletion and are excluded
+from Git. Legacy named volumes are also supported when explicitly selected.
+A missing explicitly named volume fails closed before Compose startup,
+unless `CODEX_CREATE_NAMED_VOLUME=true` or
+`SERENA_CREATE_NAMED_VOLUME=true` explicitly authorizes first creation.
+This is different from opt-in claiming a populated legacy volume.
+Declarative Agent Tool state cannot shadow protected mounts
+(`/root/.codex`, `/workspace`, `/root/.cache`, `/tmp`, `/run`)
+or another enabled tool's state mount. Disabled managed Sidecars are
+reconciled within their Compose project without removing persistent state.
+Never share one CODEX_HOME among concurrently running agents
+(SQLite and credential isolation). Backup only after stopping Codex.

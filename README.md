@@ -19,7 +19,7 @@ Host Linux
        │                               │
        ├── agent                       │
        │    ├── Codex CLI              │
-       │    ├── Go toolchain           │
+       │    ├── Optional SDKs         │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
        │    │    ├── AGENTS.md              project instructions
@@ -41,12 +41,13 @@ The agent does **not** receive the host Podman/Docker socket. Service orchestrat
 
 ## Image layers
 
-The environment uses three baseline image layers plus an optional Serena layer:
+The environment uses four baseline image layers plus an optional legacy Serena compatibility layer:
 
-1. `base` — OS, Go, Git, build/debug utilities.
-2. `codex` — Codex CLI installation.
-3. `project` — project dependencies, generic global Codex policy, and system defaults.
-4. `serena` — optional Serena MCP + `gopls` layer built on top of `project`.
+1. `base` — neutral Debian 13, Git, Shell, network/build utilities; **no Go SDK**.
+2. `codex` — official Codex CLI/Remote Control, reusable across projects.
+3. `dependencies` — languages, SDKs, packages and Embedded Agent Tools from `dependencies/dependencies.toml`.
+4. `project` — Codex configuration, generic policy, generated MCP settings.
+5. `serena` — optional **legacy compatibility** layer; new deployments install Serena generically through `[[agent_tools]]`.
 
 The image store belongs to the rootless Podman host user, not to a repository
 clone or Compose project. Two different project-context clones can therefore
@@ -54,6 +55,79 @@ run containers from the same image ID as long as they use the same image tags.
 
 This keeps expensive toolchain layers reusable while Compose isolates runtime
 containers, networks, and persistent state.
+
+## Persistent local Codex and Serena state
+
+By default, all Codex auth, native memory (including any SQLite files),
+sessions and history are stored in **directories under this isolated-agent
+repository**, rather than in Podman-managed named volumes. No state is
+stored in the container's disposable root filesystem:
+
+```text
+isolated-agent/
+  volumes/                      # gitignored; never commit credentials
+    codex/<project-key>/        # bind-mounted to /root/.codex
+    serena/<project-key>/       # bind-mounted to /root/.serena (Serena profile)
+```
+
+`.env.example` specifies both base directories:
+
+```dotenv
+CODEX_STATE_VOLUME=./volumes/codex
+SERENA_STATE_VOLUME=./volumes/serena
+CODEX_FEATURE_MEMORIES=true
+```
+
+`make up`, `make offline`, `make recreate-agent` and `make up-serena`
+automatically create both missing directories **before** starting
+containers. The `<project-key>` subdirectory is derived from
+`COMPOSE_PROJECT_NAME` and the canonical host `PROJECT_DIR`, so
+changing the source project cannot silently reuse its old memory.
+A marker inside the state also refuses deliberate cross-project reuse.
+
+`make memory-info` displays the exact paths. Both bind mounts
+survive container deletion and recreation; they are not removed by
+`podman volume rm` or standard Compose `down`.
+
+Serena's **project memories** stay in
+`PROJECT_DIR/.serena/memories/` (under the workspace bind), exactly as
+before. The local Serena folder above persists **global** Serena settings.
+
+For backward compatibility, setting `CODEX_STATE_VOLUME` or
+`SERENA_STATE_VOLUME` to a **bare name instead of a path** selects
+an existing Podman named volume, e.g.
+`CODEX_STATE_VOLUME=isolated-agent-demo_codex-state`.
+Missing named volumes fail before Compose starts. Creating an intentionally
+new named volume requires temporary `CODEX_CREATE_NAMED_VOLUME=true` or
+`SERENA_CREATE_NAMED_VOLUME=true`.
+See [safe migration and backups](docs/codex-config.md#upgrading-an-existing-codex-volume)
+before changing an existing installation.
+
+## Universal toolchains and Agent Tools
+
+Go is no longer required by the Base image or runtime doctor. SDKs,
+Debian packages, local `.deb` / archives, installer scripts and arbitrary
+trusted commands are configured in `dependencies/dependencies.toml`.
+MCP and CLI tools share one generic `[[agent_tools]]` manifest with
+`embedded`, `sidecar`, and `external` placements.
+
+```bash
+make deps-validate
+make deps-plan       # preview generated image and MCP definitions
+make build           # build Base, Codex, Dependencies, Project
+make up              # agent + filtered Squid + enabled sidecars
+make doctor
+```
+
+Change to TOML requires an explicit `make build-project` (or `make build`)
+before restarting the agent. The Makefile maintains separate
+project-scoped Project image tags so MCP endpoint configuration from one
+checkout does not contaminate another checkout on the same host.
+Legacy named images set explicitly in `.env` remain an operator choice.
+
+Project tasks such as `make test`, `make race`, and `make integration`
+now follow `[project]` recipes instead of assuming Go is installed.
+See [Dependencies/Agent Tools design, examples and security](docs/dependencies.md).
 
 ## Project context root
 
@@ -133,19 +207,19 @@ cp .env.example .env
 
 Set `PROJECT_DIR` in `.env` to the source directory the agent may access.
 
-Ensure all image layers are available:
+Build the generic agent (Base + Codex + Dependencies + Project):
 
 ```bash
-make ensure-images
+make deps-validate
+make deps-plan
+make build
 ```
 
-This is the preferred bootstrap command when the repository is cloned more than
-once on the same host. Rootless Podman image storage is shared for the current
-host user, so images with the same configured tags are reused instead of being
-built again.
-
-Use `make build` and `make build-serena` when you intentionally want to
-rebuild image layers.
+On an existing host, `make ensure-project-image` can reuse current tags
+and build only missing layers. It does **not** detect changed dependencies
+or configuration: use `make build-project` to apply those changes.
+`make ensure-images` also builds the optional legacy Serena image,
+which is unnecessary when Serena is configured as a generic Agent Tool.
 
 Start the agent with **filtered web egress** (internal network + Squid):
 
@@ -175,11 +249,19 @@ Open a regular shell:
 make shell
 ```
 
-Stop the environment:
+Stop the **existing containers without removing or recreating them**:
 
 ```bash
-make down
+make stop
+# Later, resume exactly the containers that were running:
+make start
 ```
+
+For first-time creation or after image/Compose changes, use `make up`
+(or `make up-example` for PostgreSQL + Redis). Use `make down` only
+when you explicitly want the Compose containers removed. Volumes are
+preserved by normal `down`, but the container IDs and writable layers
+are not.
 
 ## Independent network name and shared networks
 
@@ -238,8 +320,9 @@ when updating an older container. Remote Android tasks may initialize
 `/root/Documents`, which the updated **project image** maps to
 `/workspace` using an image-baked symlink. Applying this requires
 `make build-project && make recreate-agent` (or rebuilding and starting
-the Serena image). No host port needs to be opened; rootless Podman
-isolation and the existing named volumes are retained.
+the Serena image). No host port needs to be opened; rootless Podman isolation
+and the selected persistent Codex/Serena bind directories (or
+explicit legacy named volumes) are retained.
 
 The Android host/pairing flow has been observed on an actual device,
 but successful execution of a whole remote turn must still be verified
@@ -271,165 +354,63 @@ Example:
     PROJECT_DIR=/home/user/projects/project-b
 ```
 
-Both contexts can use the same local image tags:
+The reusable host-level images share these default tags:
 
 ```text
 localhost/isolated-agent-base:dev
 localhost/isolated-agent-codex:dev
-localhost/isolated-agent-project:dev
-localhost/isolated-agent-serena:dev
+localhost/isolated-agent-dependencies:dev
 ```
 
-The resulting runtime looks conceptually like this:
+The **Project** and optional **legacy Serena** images are project-scoped
+by default, keyed by the canonical `PROJECT_DIR` and `COMPOSE_PROJECT_NAME`:
 
 ```text
-project-a clone ── Compose project A ──┐
-                                      ├── shared Podman images
-project-b clone ── Compose project B ──┘
-
-Compose project A:
-  /workspace -> project-a
-  own containers
-  own network
-  own Codex/cache/Serena state
-
-Compose project B:
-  /workspace -> project-b
-  own containers
-  own network
-  own Codex/cache/Serena state
+localhost/isolated-agent-project-<project-key>:dev
+localhost/isolated-agent-serena-<project-key>:dev
 ```
+
+The Dependencies image tag remains host-global. Running
+`make build-project` regenerates its recipe, builds Dependencies,
+and builds the project-scoped Project image with current MCP settings.
+Explicit image-tag overrides in older `.env` files bypass the
+project-scoped defaults and must be reviewed before reuse.
 
 ### Bootstrap a new project context
 
-After cloning the repository for another project:
+Copy `.env.example` to `.env` and assign a distinct `COMPOSE_PROJECT_NAME`
+and an absolute `PROJECT_DIR` for the target source directory:
 
 ```bash
-cp .env.example .env
-```
-
-At minimum, set:
-
-```dotenv
-COMPOSE_PROJECT_NAME=isolated-agent-my-project
-PROJECT_DIR=/absolute/path/to/my-project
-```
-
-`COMPOSE_PROJECT_NAME` must be unique for each context. Use an absolute
-`PROJECT_DIR` for real projects so it is obvious which host repository is
-mounted at `/workspace`.
-
-Then run:
-
-```bash
-make ensure-images
+make deps-validate
+make deps-plan
+make build              # on a fresh host: Base, Codex, Dependencies, Project
 make up
 make ps
 ```
 
-`make ensure-images` checks each configured image with
-`podman image exists`. Existing images are reused and only missing layers are
-built.
-
-A simple verification is:
-
-```bash
-podman ps
-```
-
-Different contexts should have different container names, while the IMAGE
-column may intentionally show the same image, for example:
-
-```text
-isolated-agent-project-a_agent_1   localhost/isolated-agent-project:dev
-isolated-agent-project-b_agent_1   localhost/isolated-agent-project:dev
-```
+On a host where Base and Codex already exist, run `make build-project`
+instead of `make build`. `make ensure-project-image` reuses existing
+image tags and builds only missing layers; it does not detect changed
+dependencies, build arguments or generated MCP configuration.
+`make ensure-images` additionally ensures the optional **legacy Serena**
+image even for projects that do not use that compatibility layer.
 
 ### What is shared and what stays isolated
 
-Normally safe to share across project contexts:
+The Base and Codex image tags, and by default the Dependencies image tag,
+are reusable. Workspace files, containers, Codex and Serena state,
+Project image tags, and runtime lifecycle checkpoints are scoped per project.
+Internal networks are separate by default; sharing `AGENT_NETWORK_NAME`
+with another *trusted* project grants mutual service reachability.
 
-- `BASE_IMAGE` — common OS/toolchain layer;
-- `CODEX_IMAGE` — common Codex CLI layer;
-- `PROJECT_IMAGE` — when all project-context build-time settings are the same;
-- `SERENA_IMAGE` — when its parent project image and Serena/gopls versions are the same.
+### Shared tags are host-global
 
-Keep separate per project context:
-
-- `COMPOSE_PROJECT_NAME`;
-- `PROJECT_DIR`;
-- containers and Compose networks;
-- Codex sessions/history/memories when using per-project volumes or bind mounts;
-- build caches when configured per project;
-- Serena runtime/project state;
-- project-local `AGENTS.md` and source code.
-
-### Important: shared tags are host-global
-
-Image tags such as:
-
-```text
-localhost/isolated-agent-project:dev
-```
-
-belong to the rootless Podman image store for the current host user. They are
-not namespaced by `COMPOSE_PROJECT_NAME`.
-
-Therefore, running:
-
-```bash
-make build-project
-make build-serena
-```
-
-in one clone updates those shared tags for every other clone that uses the same
-tag names.
-
-Already-running containers continue using the image ID they were created with.
-A newly created or recreated container resolves the current image tag and may
-therefore pick up the newly rebuilt image.
-
-This is useful when all contexts intentionally share the same toolchain and
-agent configuration, but it matters when project-specific build inputs differ.
-
-### Project-specific image configuration
-
-`make ensure-images` deliberately checks only whether an image tag exists. It
-does **not** compare the current clone's build arguments with the image that is
-already present.
-
-The `project` image is affected by settings such as:
-
-- `CODEX_AGENTS_FILE`;
-- `PROJECT_APT_PACKAGES`;
-- Codex model/default configuration;
-- memory feature flags and other generated Codex defaults.
-
-The Serena image additionally depends on:
-
-- the selected `PROJECT_IMAGE`;
-- `SERENA_VERSION`;
-- `SERENA_GOPLS_VERSION`.
-
-For maximum image reuse, keep image-level configuration generic and put
-project-specific context directly in the mounted/source project:
-`AGENTS.md`, `.codex/config.toml`, and `.serena/`.
-
-If two projects genuinely need different image-level dependencies or Codex
-defaults, give them different image tags in their respective `.env` files,
-for example:
-
-```dotenv
-PROJECT_IMAGE=localhost/isolated-agent-project:sip-server
-SERENA_IMAGE=localhost/isolated-agent-serena:sip-server
-```
-
-Then build only that project's specialized layers:
-
-```bash
-make build-project
-make build-serena
-```
+Any explicitly shared `DEPENDENCIES_IMAGE`, `PROJECT_IMAGE` or
+`SERENA_IMAGE` tag can be overwritten by a build from another checkout.
+Already-running containers retain their image ID, but a recreated container
+may use the newer image. Prefer project-scoped defaults for project-specific
+settings.
 
 ### Migration after upgrading existing project contexts
 
@@ -454,37 +435,18 @@ Second, existing Podman images are intentionally reused by `make ensure-images`.
 An already-built `PROJECT_IMAGE` or `SERENA_IMAGE` may therefore still
 contain the previous image-global `AGENTS.project.md`.
 
-After updating an existing context, rebuild the affected shared image layers
-once:
+After updating an existing context, inspect old `.env` image overrides
+and legacy state volumes. After saving active Codex work:
 
 ```bash
 make build-project
-make build-serena
+make recreate-agent
 ```
 
-Then recreate the agent using the desired runtime:
-
-```bash
-make up
-```
-
-or, for Serena:
-
-```bash
-make up-serena
-```
-
-After this one-time migration, normal startup can return to:
-
-```bash
-make ensure-images
-```
-
-Remember that image tags are shared by the current rootless Podman host user.
-Rebuilding `PROJECT_IMAGE` and `SERENA_IMAGE` updates those tags for every
-project context that uses the same names. If different contexts intentionally
-need different image-level configuration, assign distinct image tags before
-rebuilding.
+For the optional **legacy** Serena image, use
+`make build-project && make build-serena && make up-serena`.
+Declarative Serena is installed through Dependencies and uses the normal
+Project image; do not enable both implementations.
 
 ### Rebuild rules
 
@@ -503,7 +465,7 @@ make build-project
 make build-serena
 ```
 
-when project-level build arguments changed.
+when project-level build arguments or declarative dependencies changed.
 
 Use:
 
@@ -514,29 +476,29 @@ make build-serena
 
 when you intentionally want a full rebuild of all layers.
 
-This separation lets multiple project contexts share expensive base/toolchain
-images without accidentally forcing a rebuild every time the repository is
-cloned.
+The Project image inherits the generated Dependencies image and MCP
+configuration. Rebuilding alone does not hot-reload an active Codex session;
+recreate the agent after saving active work.
 
 ## Persistent Codex state
 
-All writable Codex state is mounted by Compose:
+`/root/.codex` is the **complete** persistent CODEX_HOME, including
+authentication, sessions, history, native memories, and associated SQLite
+files. By default its source is a gitignored host directory:
+`./volumes/codex/<project-key>` (bind-mounted). Serena global state
+defaults to `./volumes/serena/<project-key>` at `/root/.serena`;
+Serena project memories remain under `PROJECT_DIR/.serena/memories/`.
+The `agent-cache` named volume is mounted at `/root/.cache`.
 
-```text
-codex-state  -> /root/.codex
-agent-cache  -> /root/.cache
-```
+These are not backups. `make memory-info` displays effective paths.
+Legacy Podman named volumes work when explicitly selected in `.env`,
+but must exist unless a separate named-volume creation opt-in is enabled.
+See [migration and backups](docs/codex-config.md#upgrading-an-existing-codex-volume).
 
-This preserves login credentials, sessions/history, Codex-managed state, and Go/build caches when the image or container is rebuilt.
-
-Named volumes are scoped by `COMPOSE_PROJECT_NAME`, so each project should use its own value.
-
-A small image-owned global policy is synchronized into
-`/root/.codex/AGENTS.md` on container startup. It describes only the generic
-container/runtime rules. Repository-specific instructions belong in
+The image-owned generic `AGENTS.md` is synchronized into
+`/root/.codex/AGENTS.md` on startup without erasing authentication,
+memories or Codex-managed state. Repository instructions belong in
 `/workspace/AGENTS.md`.
-
-Other state in `CODEX_HOME` is left intact.
 
 ## Codex configuration
 
@@ -567,7 +529,7 @@ Available values in `.env`:
 | `CODEX_WEB_SEARCH` | `cached` | Web-search mode; use `live` only when freshness is required |
 | `CODEX_PROJECT_DOC_MAX_BYTES` | `65536` | Maximum project-instruction bytes loaded |
 | `CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES` | `false` | Keep Codex's default secret-name environment filtering active |
-| `CODEX_FEATURE_MEMORIES` | `false` | Optional experimental Codex memory feature |
+| `CODEX_FEATURE_MEMORIES` | `true` | Enable Codex native memories in new builds; an existing `.env` may override |
 | `PROJECT_APT_PACKAGES` | empty | Extra Debian packages for this project layer |
 
 The outer rootless Podman container is the primary isolation boundary. The default intentionally uses `danger-full-access` **inside the container** so Codex does not try to create a nested Bubblewrap/user-namespace sandbox that rootless Podman commonly blocks. This does not grant host full access: Podman still enforces the filesystem mounts, read-only root filesystem, dropped capabilities, `no-new-privileges`, and network boundary.
@@ -591,19 +553,12 @@ and deeper directories can contain additional `AGENTS.md` or `AGENTS.override.md
 
 ## Project-specific packages
 
-For straightforward native dependencies you usually do not need to edit a Containerfile:
-
-```dotenv
-PROJECT_APT_PACKAGES=libpq-dev gstreamer1.0-tools
-```
-
-Then:
-
-```bash
-make build-project
-```
-
-For more complex installation logic, edit `images/project/Containerfile`.
+Use `dependencies/dependencies.toml` for language SDKs, system packages,
+installation scripts, and Agent Tools. For example, add packages under
+`[apt]` and run `make deps-validate && make build-project`, followed by
+`make recreate-agent`. The older `PROJECT_APT_PACKAGES` argument remains
+available for small Project-layer additions; avoid putting new language
+toolchains in the Base image.
 
 ## Example integration services
 
@@ -629,23 +584,12 @@ A normal Compose network does not share a loopback namespace, so sibling service
 
 ## Testing workflow
 
-The target project's own `AGENTS.md` should tell Codex which checks are mandatory before it reports completion.
-
-The included template expects a flow such as:
-
-```bash
-go test ./...
-go test -race ./...
-make integration
-```
-
-Useful host commands:
-
-```bash
-make test
-make race
-make integration
-```
+`make test`, `make race`, `make integration`, and `make deps-lint`
+run the recipes declared in the active
+`dependencies/dependencies.toml` `[project]` table. The default TOML
+installs **no Go SDK** and contains no project test recipes: these Make
+targets fail with an explanation until configured. For a Go example,
+see `dependencies/examples/go-serena.toml`.
 
 ## Security model
 
@@ -653,7 +597,7 @@ The default environment:
 
 - requires rootless Podman;
 - exposes only `PROJECT_DIR` from the host;
-- mounts Codex state and build cache only as named Compose volumes;
+- bind-mounts project-scoped Codex state by default (or an explicitly selected legacy named volume), and uses a named build-cache volume;
 - does not mount host `$HOME`;
 - does not mount host `.ssh`;
 - does not expose Docker/Podman sockets;
@@ -668,6 +612,10 @@ This is a strong development sandbox, not a formal VM-grade boundary against ker
 
 ```bash
 make preflight
+make memory-info
+make deps-validate
+make deps-plan
+make ensure-project-image
 make ensure-images
 make test-image-reuse-static
 make test-project-context-static
@@ -676,6 +624,10 @@ make build-project
 make build-serena
 make up
 make up-example
+make offline
+make stop
+make start
+make deps-reconcile
 make login
 make codex
 make shell
@@ -747,13 +699,17 @@ This does not rely on the Compose model. It finds containers and networks carryi
 
 Persistent volumes are deliberately kept.
 
-To also delete the project's Codex state/cache/database volumes:
+To delete this Compose project's **named** volumes (including
+cache/database and any legacy Codex named volume):
 
 ```bash
 make reset-state
 ```
 
-Both commands are scoped by `COMPOSE_PROJECT_NAME`.
+Both commands scope container and labeled network/volume removal
+to `COMPOSE_PROJECT_NAME`. They do **not** remove repository-local
+`volumes/codex/<project-key>` and `volumes/serena/<project-key>`
+bind directories. Back them up and manage their deletion separately.
 
 
 ### Resetting only the example PostgreSQL data
@@ -811,6 +767,53 @@ Do not solve nested Bubblewrap failures by adding privileged mode, host runtime 
 With Codex's inner sandbox disabled, commands run by the agent share the container security domain with Codex itself. Treat the container as a trusted development sandbox, avoid mounting unrelated secrets, keep host credentials out of it, and prefer narrowly scoped credentials when this project moves to remote/self-hosted execution.
 
 
+## Project-wide lifecycle: `make stop` / `make start`
+
+These two commands operate on **all existing containers belonging to the
+current `COMPOSE_PROJECT_NAME`**, identified by Compose's Podman-native or
+Docker-compatible project labels. This includes the agent, Squid, optional
+PostgreSQL/Redis, and any enabled Agent Tool sidecars that have already been
+created. Containers of other Compose projects are never selected, even
+when they share `AGENT_NETWORK_NAME`.
+
+```bash
+make up-example            # create agent + squid + postgres + redis (once)
+make stop                  # stop the currently running containers
+make start                 # restart the same containers, no Compose 'up'
+make ps-example
+make doctor
+```
+
+`make stop` saves only containers that were **running (or paused)**
+into an atomic `.state/lifecycle-<project-key>.json` checkpoint, then
+stops them with a graceful 30-second timeout. Already stopped services
+remain stopped; a paused service is restored to paused state. Stopping
+twice without an intervening `make start` does not erase the checkpoint.
+`make start` uses those exact saved container IDs, starting dependency
+services before the agent, and then clears the checkpoint after success.
+
+The operations do not create/remove containers, build images, change
+Compose profiles, networks or volumes. They verify the project labels
+and agent's workspace/Codex mounts before acting. If a saved container
+was removed/recreated externally or the project configuration now
+points to a different workspace, `make start` **fails rather than
+silently switching containers**. Inspect/resolve the stale checkpoint
+before a fresh `make up` or `make stop` cycle.
+
+`make start` is **not a substitute for initial `make up`** and is not
+an image-update command. Without a prior `make stop`, it will explain
+that there is no saved running set. For image/config changes, use
+`make build-project` and `make recreate-agent` as usual.
+
+**Persistence:** bind-mounted Codex/Serena state, workspace files,
+PostgreSQL's persistent named volume, and each existing container's
+writable layer survive `make stop`/`make start`. Processes are
+terminated/restarted, not frozen: interactive Codex sessions end, and
+the example Redis uses no snapshot/AOF persistence, so **its in-memory
+keys are lost when stopped**. Close/commit active work before stopping.
+Do not confuse `make stop` with `make down` (Compose removes service
+containers) or `make clean` (removes project containers/networks).
+
 ## Agent-only lifecycle
 
 `podman-compose` does not implement Docker Compose's `rm` subcommand. For agent persistence/recreation tests, use the project targets instead:
@@ -858,44 +861,43 @@ Lifecycle helper scripts inspect both forms so they work with older and newer po
 
 ## Optional Serena MCP integration
 
-Large Go repositories can opt into a separate `Serena + gopls` image layer.
-Serena exposes symbol-aware code search and editing to Codex through MCP
-over local stdio. The baseline three-layer image remains unchanged.
+New projects configure Serena as a generic `[[agent_tools]]` **embedded**
+MCP integration in `dependencies/dependencies.toml`.
+The example `dependencies/examples/go-serena.toml` explicitly installs
+Go, gopls, Serena 1.7, and clangd, persists `/root/.serena`, and
+declares the global Serena C/C++ LSP binding.
 
 ```bash
-make build-serena
-make test-serena-static
-make up-serena-example
-make serena-doctor
-make codex-serena
+# Apply the desired example entries to dependencies/dependencies.toml.
+make deps-validate
+make deps-plan
+make build-project
+make recreate-agent
+make doctor
+make lsp-doctor      # deep check after analyzable project source exists
 ```
 
-For the first Serena start on an **empty** Compose project, bootstrap
-the PostgreSQL/Redis examples once with `make up-example`.
-Subsequent `make up-serena-example` invocations recreate **only the agent
-container**. This avoids duplicate PostgreSQL/Redis container-name
-errors seen with `podman-compose up -d` on some versions.
-Do not switch while a Codex session is active. Existing source files
-and Codex state volumes persist. The optional Compose overlay adds a separate
-`serena-state` volume at `/root/.serena`.
+For existing deployments only, the legacy `make build-serena`,
+`make up-serena`, and `compose.serena.yaml` remain available.
+The legacy Serena layer **no longer installs gopls**; SDKs and language
+servers belong in Dependencies. Do not use both legacy and generic
+Serena MCP registrations simultaneously.
 
-To switch back to the plain project image without touching running example
-services or persistent volumes, use `make recreate-agent`.
-
-See [docs/serena.md](docs/serena.md) for architecture, permissions, project
-`.serena/` artifacts, benchmark design, and rollback steps.
-
+See [dependencies and Agent Tools](docs/dependencies.md) and
+[legacy Serena](docs/serena.md).
 
 ## Network security change (migration required)
 
 The former `isolated-dev` network was `internal: false`.
-It is now `internal: true` with a configurable
-`AGENT_SUBNET` (default `10.89.71.0/24`). An existing unrestricted
-network **must not** be silently reused. Run `make preflight` to
+It is now `internal: true` with configurable `AGENT_SUBNET`
+(default `auto`, which chooses an available /24 from the configured
+network allocation pool). An existing unrestricted network **must not**
+be silently reused. Run `make preflight` to
 identify it, then explicitly run
 `CONFIRM=YES make migrate-network` (after saving work).
 That stops project containers using Compose `down` **without `-v`**,
-preserving Codex, PostgreSQL, cache and Serena named volumes.
+preserving both default project-scoped Codex/Serena host bind directories
+and existing PostgreSQL, cache or legacy Codex/Serena named volumes.
 
 `make up` starts Squid separately dual-homed between internal and
 outbound networks; Codex itself has no direct Internet route.

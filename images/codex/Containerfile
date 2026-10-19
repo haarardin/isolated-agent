@@ -3,15 +3,27 @@ FROM ${BASE_IMAGE}
 
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
     && codex --version
-# The persistent codex-state volume masks the image's /root/.codex folder.
-# Stage the standalone managed CLI for the remote-control daemon so the
-# entrypoint can seed it without clobbering user auth/history.
+# Keep the entire official package intact outside CODEX_HOME: CLI releases
+# >=0.157 need codex-package.json and bundled binaries/resources to bootstrap
+# the managed app-server daemon. A copied standalone executable is insufficient.
+# CODEX_HOME is a writable runtime bind mount that masks its image contents.
 RUN mkdir -p /opt/isolated-agent/codex-standalone \
-    && if [ -x /root/.codex/packages/standalone/current/codex ]; then \
-         cp -a /root/.codex/packages/standalone/. /opt/isolated-agent/codex-standalone/; \
-       else \
-         echo 'WARNING: installer did not produce standalone managed Codex; Remote Control needs runtime verification' >&2; \
-       fi
+    && test -x /root/.codex/packages/standalone/current/bin/codex \
+    && test -f /root/.codex/packages/standalone/current/codex-package.json \
+    && release_dir="$(readlink -f /root/.codex/packages/standalone/current)" \
+    && test -d "$release_dir" \
+    && release_name="$(basename "$release_dir")" \
+    && cp -a /root/.codex/packages/standalone/. /opt/isolated-agent/codex-standalone/ \
+    && test -d "/opt/isolated-agent/codex-standalone/releases/$release_name" \
+    && ln -sfn "releases/$release_name" /opt/isolated-agent/codex-standalone/current \
+    && test -x /opt/isolated-agent/codex-standalone/current/bin/codex \
+    && test -f /opt/isolated-agent/codex-standalone/current/codex-package.json \
+    && test -x /opt/isolated-agent/codex-standalone/current/bin/codex-code-mode-host \
+    && test -x /opt/isolated-agent/codex-standalone/current/codex-path/rg \
+    && ln -sfn /opt/isolated-agent/codex-standalone/current/bin/codex /usr/local/bin/codex \
+    && ln -sfn /opt/isolated-agent/codex-standalone/current/bin/codex /root/.local/bin/codex \
+    && test "$(readlink -f /usr/local/bin/codex)" = "$(readlink -f /root/.local/bin/codex)" \
+    && codex --version
 
 WORKDIR /workspace
 

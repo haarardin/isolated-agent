@@ -18,20 +18,20 @@ verification below.
 
 ## A. First installation (new Compose project)
 
-1. **Get the feature branch and create a local config.** If you already
-   have a clone, enter it; otherwise clone the repository first.
+1. **Use a checkout containing these Make targets and create local config.**
+   On an existing checkout, stay on its intended release/PR branch;
+   the former `feature/remote-control-network-isolation` branch is not
+   the current project state.
 
    ```bash
    git clone https://github.com/haarardin/isolated-agent.git
    cd isolated-agent
-   git fetch origin
-   git switch --track origin/feature/remote-control-network-isolation
+   # For an unmerged PR, check out its feature branch before proceeding.
    cp -n .env.example .env
    ```
 
-   If the tracking branch already exists locally, use
-   `git switch feature/remote-control-network-isolation` and
-   `git pull --ff-only` instead.
+   For an upgrade, use `git pull --ff-only` on the selected branch.
+   Do not replace an existing `.env` or legacy Podman named volume.
 
 2. **Choose what the remote agent may edit.**
 
@@ -51,6 +51,12 @@ verification below.
    BLOCK_CIDRS=
    ```
 
+   `PROJECT_DIR` **must exist**. Native Codex memories are enabled by default
+   in the newly built project image. Persistent Codex state is selected
+   automatically by source project, or with CODEX_STATE_VOLUME in .env.
+   See [state migration](codex-config.md#upgrading-an-existing-codex-volume)
+   before upgrading an existing installation.
+
    `PROJECT_DIR` **must exist**. It is mounted read-write as
    `/workspace`. In the current project image, `/root/Documents`
    is an image-baked symlink to `/workspace`; projectless mobile tasks
@@ -62,20 +68,30 @@ verification below.
    safely reuses an existing matching named network. For multiple
    independent clones, choose distinct `COMPOSE_PROJECT_NAME`.
    Set the same `AGENT_NETWORK_NAME` only for trusted projects that
-   must share a network;
-   this also prevents collisions in Compose-named volumes. To select
-   a specific subnet, set `AGENT_SUBNET` to an unused IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
+   must share a network. Distinct `COMPOSE_PROJECT_NAME` values
+   prevent Compose service and named-volume collisions.
+   To select a specific subnet, set `AGENT_SUBNET` to an unused
+   IPv4 CIDR. `BLOCK_CIDRS` optionally denies additional
    host/VPN/private IP ranges through Squid.
+
+   Persistent state is stored by default in
+   `isolated-agent/volumes/codex/<project-key>` and
+   `isolated-agent/volumes/serena/<project-key>`. The folders are
+   created automatically at startup; no manual `mkdir` is needed.
+   The `.env.example` defaults are `CODEX_STATE_VOLUME=./volumes/codex`
+   and `SERENA_STATE_VOLUME=./volumes/serena`.
 
 3. **Check dependencies, scripts and network topology.**
 
    ```bash
    make network-static
    make preflight           # plan: no changes to Podman networks
+   make memory-info         # shows effective local memory storage directories
    make network-info        # show planned or reusable configured network
    ```
 
-   Requirements: rootless Podman, explicit `podman-compose`, Python 3,
+   Requirements: rootless Podman, explicit `podman-compose`,
+   **Python 3.11+** on the host (the generator uses stdlib `tomllib`),
    GNU Make, Git and access to the official Codex CLI installer for
    the image build. The preflight must succeed before the next step.
    If it rejects an **existing same-project network because it is
@@ -87,7 +103,7 @@ verification below.
    the network.**
 
    ```bash
-   make build             # base + official Codex CLI + project image
+   make build             # Base + Codex CLI + Dependencies + Project
    make up                # agent plus dual-homed filtered Squid
    make ps
    make doctor
@@ -149,13 +165,18 @@ verification below.
 
 ## B. Upgrade an existing agent (images and persistent data already present)
 
+If you need to preserve Codex authentication/history from an existing
+installation, **first select or export the old named volume** as described in
+[Codex volume migration](codex-config.md#upgrading-an-existing-codex-volume).
+Do not silently switch to a fresh empty CODEX_STATE_VOLUME.
+
 This is the shortest safe sequence for an existing instance from an older
 PR #6 revision, especially one that fails with
 `mkdir: cannot create directory '/root/Documents': Read-only file system`.
 
 ```bash
 # From the existing isolated-agent checkout; finish/save active tasks first.
-git switch feature/remote-control-network-isolation
+# Stay on the branch containing the current PR/release.
 git pull --ff-only
 make network-static
 make preflight
@@ -200,15 +221,16 @@ project, if `make preflight` reports that this **same project's**
 `isolated-dev` network is not internal:
 
 ```bash
-# Finish/save active Codex tasks; back up valuable named-volume state.
+# Finish/save active Codex tasks; back up valuable bind/named-volume state.
 CONFIRM=YES make migrate-network
 make preflight
 make network-check
 ```
 
 `migrate-network` runs Compose `down` **without `-v`**, then starts
-the filtered web profile. It stops running sessions, but should preserve
-`codex-state`, `agent-cache`, Serena and DB named volumes. If you
+the filtered web profile. It stops running sessions, but preserves the default Codex/Serena
+host bind state as well as existing `agent-cache`, DB and legacy
+named volumes. If you
 were using optional services, restart the relevant profile afterward;
 restart the managed daemon with `make remote-start`. Do not use this
 command to fix an unrelated subnet collision with another project,
@@ -220,14 +242,19 @@ installation) or `Project network reused`, **skip migration**.
 ## D. Regular use after an agent restart/recreation
 
 ```bash
-make up                # filtered online environment (not offline)
-make remote-start      # the daemon is a process, not a persistent service
+make stop              # operator-requested shutdown of existing containers
+make start             # resume the saved set; no Compose up or recreation
+make remote-start      # daemon processes do not survive stop/start
 make remote-status
 ```
 
-If `make up` recreates the container, Codex auth and sessions remain
-in the `codex-state` named volume but the managed daemon must be started
-again. `make remote-start` does **not** auto-run on host boot. To
+For the **first start** or recovery with no `make stop` checkpoint,
+use `make up` (not `make start`). After image or configuration changes,
+rebuild/recreate the agent instead of resuming unchanged containers.
+Codex sessions, authentication and memories default to the
+`./volumes/codex/<project-key>` host bind directory, or an explicitly
+selected legacy named volume. `make remote-start` does not run
+automatically on host boot. To
 stop remote management without deleting data:
 
 ```bash
@@ -267,11 +294,13 @@ Keep `read_only: true`, drop all capabilities, retain internal-only
 agent networking, and use the Squid proxy for outbound HTTPS. Do not
 attach the Podman/Docker socket or blanket-mount host `$HOME`.
 
-**Persistent data:** `codex-state:/root/.codex` holds Codex
-authentication and session data; `agent-cache:/root/.cache` holds
-build caches; `PROJECT_DIR` is the approved writable host source
-directory. `make reset-state` deletes persistent volumes; do **not**
-use it while debugging Remote Control.
+**Persistent data:** the complete `/root/.codex` (auth, sessions,
+memories and SQLite) defaults to a gitignored host bind directory,
+`./volumes/codex/<project-key>`; an existing named volume can also
+be selected explicitly. `agent-cache:/root/.cache` holds build caches;
+`PROJECT_DIR` is the approved source directory. `make reset-state`
+is destructive for named volumes and does not replace backups for
+host bind state. Never use it to debug Remote Control.
 
 For implementation details and security limitations see
 [Remote Control reference](remote-control.md),

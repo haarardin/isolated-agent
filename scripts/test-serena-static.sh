@@ -6,13 +6,18 @@ for script in scripts/test-serena-static.sh scripts/serena-doctor.sh scripts/com
   bash -n "$script"
 done
 
-grep -Fq '[mcp_servers.serena]' images/serena/Containerfile
 grep -Fq 'serena-agent==${SERENA_VERSION}' images/serena/Containerfile
-grep -Fq 'GOBIN=/usr/local/bin go install' images/serena/Containerfile
+grep -Fq 'serena' dependencies/examples/go-serena.toml
+grep -Fq 'gopls' dependencies/examples/go-serena.toml
+if grep -Fq 'go install' images/serena/Containerfile; then
+  echo 'ERROR: Legacy Serena container must not require Go to build' >&2
+  exit 1
+fi
 grep -Fq -- '--transport=stdio' images/serena/Containerfile
 grep -Fq -- '--enable-web-dashboard=false' images/serena/Containerfile
 grep -Fq -- '--project=/workspace' images/serena/Containerfile
-grep -Fq 'serena-state:/root/.serena' compose.serena.yaml
+grep -Fq 'target: /root/.serena' compose.serena.yaml
+grep -Fq 'source: ${SERENA_STATE_MOUNT_SOURCE:-' compose.serena.yaml
 grep -Fq 'image: ${SERENA_IMAGE:-localhost/isolated-agent-serena:dev}' compose.serena.yaml
 
 # Ensure we do not accidentally elevate the container or publish a port.
@@ -35,6 +40,6 @@ if printf '%s\n' "$serena_plan" | grep -Fxq 'bash scripts/compose.sh -f compose.
 fi
 
 # Baseline rollback must also target only the agent.
-make -n recreate-agent | grep -Fq 'compose.example-services.yaml up -d agent'
+make -n recreate-agent | grep -Fq 'compose.example-services.yaml -f .generated/compose.tools.yaml up -d agent'
 
 echo 'Serena static integration checks: OK'

@@ -1,0 +1,17 @@
+# Never ship runtime secrets or project sources to image build context.
+.git/
+.env
+.env.*
+!.env.example
+volumes/
+.state/
+workspace/
+**/.codex/
+**/.serena/
+**/.ssh/
+**/auth.json
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+# Generated build files (.generated/) are required by Containerfiles.
+# dependencies/packages, scripts and files must remain in build context.

@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [feature/remote-control-network-isolation]
+    branches: [main, feat/project-scoped-codex-memory-volumes]
   workflow_dispatch:
 jobs:
   config-and-tests:
@@ -19,6 +19,7 @@ jobs:
           make test-image-reuse-static
           make test-project-context-static
           make test-serena-static
+          bash scripts/test-tool-lifecycle-static.sh
       - name: Verify Compose web, offline, Serena and optional services
         run: |
           mkdir -p .state
@@ -26,16 +27,29 @@ jobs:
           # directory. Override that to match the explicit test fixture.
           export COMPOSE_PROJECT_NAME=isolated-agent-demo
           export AGENT_NETWORK_NAME=isolated-agent-demo_isolated-dev
+          export CODEX_PROJECT_KEY="$(python3 scripts/project-state.py --project-dir "$PWD/workspace" --compose-project "$COMPOSE_PROJECT_NAME" --field key)"
+          export CODEX_STATE_VOLUME="./volumes/codex"
+          export SERENA_STATE_VOLUME="./volumes/serena"
+          export CODEX_STATE_MOUNT_TYPE=bind
+          export SERENA_STATE_MOUNT_TYPE=bind
+          export CODEX_STATE_MOUNT_SOURCE="$PWD/volumes/codex/$CODEX_PROJECT_KEY"
+          export SERENA_STATE_MOUNT_SOURCE="$PWD/volumes/serena/$CODEX_PROJECT_KEY"
+          export CODEX_NAMED_VOLUME="isolated-agent-codex-$CODEX_PROJECT_KEY"
+          export SERENA_NAMED_VOLUME="isolated-agent-serena-$CODEX_PROJECT_KEY"
+          python3 scripts/prepare-state.py \
+            --codex-type "$CODEX_STATE_MOUNT_TYPE" --codex-source "$CODEX_STATE_MOUNT_SOURCE" \
+            --serena-type "$SERENA_STATE_MOUNT_TYPE" --serena-source "$SERENA_STATE_MOUNT_SOURCE"
           # Standalone CI has no rootless Podman network. Seed a validated
           # fixture for the Squid config renderer, without creating a network.
           printf '%s\n' '{"project":"isolated-agent-demo","name":"isolated-agent-demo_isolated-dev","subnet":"10.89.71.0/24"}' > .state/network.json
           COMPOSE_PROJECT_NAME=isolated-agent-demo bash scripts/prepare-web.sh
+          python3 scripts/dependencies.py generate
           for profile in base web example serena; do
             case "$profile" in
-              base) files="-f compose.yaml";;
-              web) files="-f compose.yaml -f compose.web.yaml";;
-              example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml";;
-              serena) files="-f compose.yaml -f compose.web.yaml -f compose.serena.yaml";;
+              base) files="-f compose.yaml -f .generated/compose.tools.yaml";;
+              web) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml";;
+              example) files="-f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml";;
+              serena) files="-f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml -f compose.serena.yaml";;
             esac
             docker compose $files config --format json > "/tmp/$profile.json"
           done
@@ -60,6 +74,14 @@ jobs:
               assert not sv.get('ports')
               assert not sv.get('privileged',False)
               assert not sv.get('network_mode')
+              codex_home=next(v for v in sv['volumes'] if v['target']=='/root/.codex')
+              assert codex_home['type']=='bind',name
+              assert codex_home['source']==__import__('os').environ['CODEX_STATE_MOUNT_SOURCE'],name
+              assert sv['environment']['CODEX_PROJECT_KEY']==__import__('os').environ['CODEX_PROJECT_KEY'],name
+              if name=='serena':
+                  serena_home=next(v for v in sv['volumes'] if v['target']=='/root/.serena')
+                  assert serena_home['type']=='bind'
+                  assert serena_home['source']==__import__('os').environ['SERENA_STATE_MOUNT_SOURCE']
               assert any(v['target']=='/root/.codex' for v in sv['volumes'])
               # The image contains /root/Documents -> /workspace; ensure
               # no second host mount sneaks into any Compose profile.
@@ -94,6 +116,55 @@ jobs:
           assert x['services']['agent']['networks'] == {'isolated-dev': None} or set(x['services']['agent']['networks']) == {'isolated-dev'}
           print('Separate Compose projects can share a network without ambiguous proxy alias')
           PY
+          # Regression for embedded Serena persisted under /root/.serena:
+          # no sidecars + an agent volume used to emit an invalid trailing {}.
+          python3 scripts/dependencies.py generate --config dependencies/examples/go-serena.toml
+          docker compose -f compose.yaml -f compose.web.yaml \
+            -f .generated/compose.tools.yaml config --format json > /tmp/serena-embedded.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          overlay = Path(".generated/compose.tools.yaml").read_text()
+          assert not overlay.rstrip().endswith("{}"), overlay
+          config = json.loads(Path("/tmp/serena-embedded.json").read_text())
+          agent = config["services"]["agent"]
+          mounts = {v["target"]: v for v in agent["volumes"]}
+          assert {"/workspace", "/root/.codex", "/root/.cache", "/root/.serena"} <= set(mounts), mounts
+          assert mounts["/root/.serena"]["type"] == "bind"
+          assert mounts["/root/.serena"]["source"].startswith(str(Path.cwd() / "volumes" / "serena"))
+          assert agent["read_only"] is True
+          print("Embedded Serena persisted volume Compose config validated")
+          PY
+          # Actual offline profile contract: embedded + sidecar, no Squid.
+          cp dependencies/examples/go-serena.toml /tmp/offline-tools.toml
+          cat >> /tmp/offline-tools.toml <<'TOML'
+          [[agent_tools]]
+          id = "sidecar-check"
+          kind = "mcp"
+          placement = "sidecar"
+          enabled = true
+          [agent_tools.runtime]
+          command = ["/bin/true"]
+          port = 8787
+          [agent_tools.integration]
+          transport = "http"
+          path = "/mcp"
+          TOML
+          python3 scripts/dependencies.py generate --config /tmp/offline-tools.toml
+          docker compose -f compose.yaml -f .generated/compose.tools.yaml config --format json >/tmp/offline-tools.json
+          python3 - <<'PY'
+          import json
+          import os
+          x=json.load(open("/tmp/offline-tools.json"))
+          assert set(x["services"]) == {"agent", "tool-sidecar-check"}
+          mounts={m["target"]:m for m in x["services"]["agent"]["volumes"]}
+          assert mounts["/root/.serena"]["type"]=="bind"
+          assert mounts["/root/.codex"]["source"]==os.environ["CODEX_STATE_MOUNT_SOURCE"]
+          side=x["services"]["tool-sidecar-check"]
+          assert side["read_only"] is True
+          assert next(m for m in side["volumes"] if m["target"]=="/workspace")["read_only"] is True
+          PY
+          python3 scripts/dependencies.py generate
 
       - name: Squid ACL syntax check with generated CIDRs
         run: |
@@ -112,11 +183,134 @@ jobs:
         run: |
           docker build -f images/base/Containerfile -t localhost/isolated-agent-base:dev .
           docker build -f images/codex/Containerfile -t localhost/isolated-agent-codex:dev .
-      - name: Build project agent image with persistent Documents alias
+      - name: Build neutral Dependencies and project images
         run: |
-          docker build -f images/project/Containerfile \
+          docker run --rm --entrypoint sh --network none localhost/isolated-agent-base:dev -ec '
+            if command -v go >/dev/null 2>&1; then
+              echo "Generic base image must not include Go" >&2; exit 1
+            fi
+          '
+          python3 scripts/dependencies.py generate
+          docker build -f .generated/Containerfile.dependencies \
             --build-arg CODEX_IMAGE=localhost/isolated-agent-codex:dev \
+            -t localhost/isolated-agent-dependencies:dev .
+          docker build -f images/project/Containerfile \
+            --build-arg DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:dev \
             -t localhost/isolated-agent-project:ci .
+      - name: Smoke build local installer, Embedded CLI and MCP Sidecar
+        run: |
+          python3 scripts/dependencies.py build \
+            --config dependencies/examples/ci-smoke.toml \
+            --engine docker \
+            --codex-image localhost/isolated-agent-codex:dev \
+            --base-image localhost/isolated-agent-base:dev \
+            --deps-image localhost/isolated-agent-dependencies:ci-smoke
+          docker run --rm --network none --entrypoint /bin/sh \
+            localhost/isolated-agent-dependencies:ci-smoke -ec '
+              isolated-agent-smoke-tool | grep -q smoke-installed
+              embedded-cli | grep -q embedded-ok
+            '
+          docker run --rm --network none --entrypoint /bin/sh \
+            localhost/isolated-agent-tool-isolated-agent-demo-ci-mcp:dev -ec '
+              isolated-agent-smoke-tool | grep -q smoke-installed
+              if command -v codex >/dev/null 2>&1; then
+                echo "Sidecar unexpectedly bundles Codex CLI" >&2
+                exit 1
+              fi
+            '
+
+      - name: Smoke Serena 1.7 LSP with system clangd and persistent state (offline)
+        run: |
+          set -euo pipefail
+          # Separate fixture image; preserve the neutral Project image used by
+          # other security/memory tests and restore generated files afterwards.
+          python3 scripts/dependencies.py generate --config dependencies/examples/serena-cpp-ci.toml
+          docker build -f .generated/Containerfile.dependencies \
+            --build-arg CODEX_IMAGE=localhost/isolated-agent-codex:dev \
+            -t localhost/isolated-agent-dependencies:ci-serena-cpp .
+          docker build -f images/project/Containerfile \
+            --build-arg DEPENDENCIES_IMAGE=localhost/isolated-agent-dependencies:ci-serena-cpp \
+            -t localhost/isolated-agent-project:ci-serena-cpp .
+          python3 scripts/dependencies.py generate
+
+          scratch="$(mktemp -d)"
+          trap 'sudo rm -rf "$scratch"' EXIT
+          mkdir -p "$scratch/workspace/.serena" "$scratch/serena" "$scratch/codex"
+          cat > "$scratch/workspace/.serena/project.yml" <<'YAML'
+          project_name: isolated-serena-cpp-ci
+          language_servers:
+            - cpp
+          language_backend: LSP
+          ls_specific_settings:
+            cpp:
+              ls_path: /bad/project-supplied/clangd
+          YAML
+          cat > "$scratch/workspace/test.c" <<'C'
+          int sum(int a, int b) { return a + b; }
+          int caller(void) { return sum(1, 2); }
+          C
+          # Serena 1.7 health-check intentionally skips source files <=1000B.
+          for i in $(seq 1 40); do
+            printf '// Serena C fixture expansion %03d; comments do not affect symbols.\n' "$i" >> "$scratch/workspace/test.c"
+          done
+          test "$(wc -c < "$scratch/workspace/test.c")" -gt 1000
+
+          # The project-specific ls_path above must be ignored because
+          # /workspace is NOT trusted. Our global binding still starts
+          # Debian clangd without any network access or archive extraction.
+          for attempt in 1 2; do
+            docker run --rm --network none --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+              --tmpfs /run:rw,nosuid,nodev,size=64m \
+              --tmpfs /root/.cache:rw,nosuid,nodev,size=128m \
+              -e CODEX_PROJECT_KEY=eeeeeeeeeeeeeeeeeeeeeeee \
+              -v "$scratch/workspace:/workspace:rw" \
+              -v "$scratch/codex:/root/.codex:rw" \
+              -v "$scratch/serena:/root/.serena:rw" \
+              localhost/isolated-agent-project:ci-serena-cpp \
+              bash -ec '
+                bash /usr/local/bin/isolated-agent-tool-lsp-runtime check
+                bash /usr/local/bin/isolated-agent-tool-lsp-runtime probe
+              '
+          done
+          # Runtime state is root-owned in Docker: inspect it as container
+          # root rather than asking GitHub's non-root runner to read it.
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:ro" \
+            -v "$scratch/workspace:/workspace:ro" \
+            --entrypoint /bin/bash localhost/isolated-agent-project:ci-serena-cpp -ec '
+              grep -Fq "ls_path: /usr/bin/clangd" /state/serena_config.yml
+              grep -Rq "argv\\[0\\]: /usr/bin/clangd" /workspace/.serena/logs/health-checks
+              if grep -Rq "Downloading from https://github.com/clangd" /workspace/.serena/logs /state/logs 2>/dev/null; then
+                echo "Unexpected managed clangd download attempt" >&2
+                exit 1
+              fi
+            '
+          echo "Serena cpp language server initialized twice offline with persistent state"
+          # A conflicting user-owned ls_path must not be silently replaced.
+          # Mutate only this disposable CI state; production volumes remain safe.
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:rw" \
+            --entrypoint /bin/sh localhost/isolated-agent-project:ci-serena-cpp \
+            -ec 'sed -i "s@ls_path: /usr/bin/clangd@ls_path: /user/custom/clangd@" /state/serena_config.yml'
+          if docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --tmpfs /run:rw,nosuid,nodev,size=64m \
+            --tmpfs /root/.cache:rw,nosuid,nodev,size=128m \
+            -e CODEX_PROJECT_KEY=eeeeeeeeeeeeeeeeeeeeeeee \
+            -v "$scratch/workspace:/workspace:rw" \
+            -v "$scratch/codex:/root/.codex:rw" \
+            -v "$scratch/serena:/root/.serena:rw" \
+            localhost/isolated-agent-project:ci-serena-cpp true; then
+            echo "Conflicting existing Serena ls_path should have rejected agent startup" >&2
+            exit 1
+          fi
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:ro" \
+            --entrypoint /bin/sh localhost/isolated-agent-project:ci-serena-cpp \
+            -ec 'grep -Fq "ls_path: /user/custom/clangd" /state/serena_config.yml'
+
+
       - name: Verify projectless Remote workspace on read-only root
         run: |
           scratch="$(mktemp -d)"
@@ -147,6 +341,77 @@ jobs:
               chown -R "$(stat -c '%u:%g' /workspace)" /workspace/Codex
             '
           test "$(cat "$scratch/Codex/remote-test/result.txt")" = remote-ok
+      - name: Verify persistent Codex memory volume survives container deletion
+        run: |
+          set -euo pipefail
+          volume="isolated-agent-codex-ci-${GITHUB_RUN_ID}"
+          docker volume create "$volume" >/dev/null
+          trap 'docker volume rm "$volume" >/dev/null 2>&1 || true' EXIT
+          key="aaaaaaaaaaaaaaaaaaaaaaaa"
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'codex --version; test -x /usr/local/bin/codex; mkdir -p "$CODEX_HOME/memories"; echo persisted > "$CODEX_HOME/memories/probe.txt"'
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'test "$(cat "$CODEX_HOME/memories/probe.txt")" = persisted'
+          if docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY=bbbbbbbbbbbbbbbbbbbbbbbb \
+            -v "$volume:/root/.codex" \
+            localhost/isolated-agent-project:ci true; then
+            echo "Cross-project memory reuse unexpectedly allowed" >&2
+            exit 1
+          fi
+
+      - name: Verify repository-local bind storage survives container removal
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          key="cccccccccccccccccccccccc"
+          folder="$scratch/volumes/codex/$key"
+          mkdir -p "$folder"
+          cleanup() {
+            docker run --rm --network none --entrypoint sh \
+              -v "$scratch:/hoststate" localhost/isolated-agent-project:ci \
+              -c 'rm -rf /hoststate/volumes' >/dev/null 2>&1 || true
+            rm -rf "$scratch"
+          }
+          trap cleanup EXIT
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'codex --version; test -x /usr/local/bin/codex; package="$(dirname "$(readlink -f "$(command -v codex)")")/.."; test -f "$package/codex-package.json"; test -x "$package/bin/codex-code-mode-host"; test -x "$package/codex-path/rg"; mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
+          docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'test "$(cat "$CODEX_HOME/memories/test.txt")" = bind-ok'
+          # Trigger the daemon package-discovery path without credentials
+          # or network. It may fail later (no auth / detachment on CI), but
+          # must never report that our complete Codex package is missing.
+          daemon_output="$(timeout 25 docker run --rm --read-only --network none \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --tmpfs /run:rw,nosuid,nodev,size=32m \
+            -e CODEX_PROJECT_KEY="$key" \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci \
+            sh -ec 'codex app-server daemon start' 2>&1)" || true
+          if printf '%s\\n' "$daemon_output" | grep -Fq 'this CLI has no complete local package'; then
+            echo "Codex daemon cannot find complete package despite image install" >&2
+            exit 1
+          fi
+          if docker run --rm --read-only --network none \
+            -e CODEX_PROJECT_KEY=dddddddddddddddddddddddd \
+            -v "$folder:/root/.codex" \
+            localhost/isolated-agent-project:ci true; then
+            echo "Cross-project bind memory reuse unexpectedly allowed" >&2
+            exit 1
+          fi
+
       - name: Check experimental CLI subcommands (without login)
         run: |
           docker run --rm --entrypoint /bin/bash --network none \
@@ -158,4 +423,8 @@ jobs:
               codex remote-control stop --help >/dev/null
               codex app-server daemon --help >/dev/null
               test -x /root/.codex/packages/standalone/current/codex
+              test -x /usr/local/bin/codex
+              test -f /opt/isolated-agent/codex-standalone/current/codex-package.json
+              test "$(readlink -f /usr/local/bin/codex)" = "$(readlink -f /root/.local/bin/codex)"
+              test "$(readlink -f /usr/local/bin/codex)" = "$(readlink -f /opt/isolated-agent/codex-standalone/current/bin/codex)"
             '

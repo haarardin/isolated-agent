@@ -1,0 +1,41 @@
+# CI-only build integration for custom installer and generic Agent Tools.
+[base]
+image = "debian:13-slim"
+[apt]
+packages = []
+
+[[install]]
+id = "local-sdk-installer"
+type = "script"
+file = "install-ci-smoke.sh"
+verify = ["isolated-agent-smoke-tool | grep -q smoke-installed"]
+
+[[agent_tools]]
+id = "ci-cli"
+kind = "cli"
+placement = "embedded"
+enabled = true
+
+[[agent_tools.install]]
+type = "command"
+run = "printf '#!/bin/sh\\necho embedded-ok\\n' > /usr/local/bin/embedded-cli && chmod 0755 /usr/local/bin/embedded-cli"
+verify = ["embedded-cli | grep -q embedded-ok"]
+
+[[agent_tools]]
+id = "ci-mcp"
+kind = "mcp"
+placement = "sidecar"
+enabled = true
+
+[[agent_tools.install]]
+type = "script"
+file = "install-ci-smoke.sh"
+verify = ["isolated-agent-smoke-tool | grep -q smoke-installed"]
+
+[agent_tools.runtime]
+command = ["/usr/local/bin/isolated-agent-smoke-tool"]
+port = 8822
+
+[agent_tools.integration]
+transport = "http"
+path = "/mcp"

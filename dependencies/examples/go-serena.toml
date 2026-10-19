@@ -1,0 +1,58 @@
+# Example of a Go project using Serena as a GENERIC embedded MCP tool.
+[base]
+image = "debian:13-slim"
+[apt]
+packages = ["python3", "python3-venv", "python3-pip", "pkg-config", "libpq-dev", "clangd"]
+
+[[install]]
+id = "go-sdk"
+type = "script"
+file = "install-go.sh"
+args = ["1.27.0"]
+verify = ["go version"]
+
+[[agent_tools]]
+id = "serena"
+kind = "mcp"
+placement = "embedded"
+enabled = true
+
+[[agent_tools.install]]
+type = "command"
+run = "python3 -m venv /opt/agent-tools/serena && /opt/agent-tools/serena/bin/pip install --no-cache-dir 'serena-agent==1.7.0'"
+verify = ["/opt/agent-tools/serena/bin/serena --help >/dev/null"]
+
+[[agent_tools.install]]
+type = "command"
+run = "GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@v0.20.0"
+verify = ["gopls version"]
+
+# Global Serena runtime state remains in the usual project-local
+# volumes/serena/<project-key> directory. Project memories stay under
+# PROJECT_DIR/.serena/memories/.
+# Serena 1.7: project-level ls_specific_settings are ignored for untrusted
+# repositories. If you also enable C/C++ via [language_servers] cpp,
+# put ls_specific_settings.cpp.ls_path = /usr/bin/clangd in the user-owned
+# /root/.serena/serena_config.yml (persistent, mounted over the image).
+# See docs/dependencies.md "Serena 1.7 and local C/C++ language servers".
+[agent_tools.state]
+base = "./volumes/serena"
+target = "/root/.serena"
+
+# Serena 1.7 ignores per-project LS-specific paths for untrusted projects.
+# These explicit bindings are applied to its global persisted configuration
+# before the MCP server starts, without broadening project trust.
+[agent_tools.lsp]
+adapter = "serena"
+servers = { cpp = "/usr/bin/clangd" }
+
+[agent_tools.integration]
+transport = "stdio"
+command = "/opt/agent-tools/serena/bin/serena"
+args = ["start-mcp-server", "--project=/workspace", "--context=codex", "--transport=stdio", "--enable-web-dashboard=false", "--open-web-dashboard=false", "--enable-gui-log-window=false"]
+
+[project]
+test = "go test ./..."
+race = "go test -race ./..."
+lint = "go vet ./..."
+integration = "go test -tags=integration ./..."
