@@ -188,7 +188,8 @@ merely testing whether clangd is on PATH.
 1. Edit dependencies/dependencies.toml (copy individual entries from examples).
 2. Run make deps-validate and make deps-plan.
 3. Run make build (or make build-project if Base and Codex images exist).
-4. Run make up and make doctor; make remote-start if needed.
+4. Run make up (first-time creation) and make doctor; make remote-start if needed.
+   On later restarts after make stop, use make start instead of make up.
 5. Check codex mcp list from agent shell.
 
 make deps-build rebuilds Dependencies and active sidecar images.
@@ -199,6 +200,38 @@ restarts the agent without deleting persistent CODEX_HOME/Serena state.
 IMPORTANT: Changing dependencies currently requires a deliberate rebuild
 with make build-project (or make build). make up does NOT transparently
 install arbitrary new scripts or recompile an existing image.
+
+### Resume an existing Compose deployment
+
+`make stop` finds all running/paused containers with either compatible
+Compose project label matching `COMPOSE_PROJECT_NAME` (agent, Squid, optional
+PostgreSQL/Redis and sidecars), stores their IDs and original states in
+`.state/lifecycle-<project-key>.json`, then gracefully stops them.
+`make start` resumes exactly that set of containers, using `podman start`
+and restoring paused status; it does **not** call Compose `up`, change images,
+or create/remove containers and does not start pre-stopped services.
+
+These targets apply to whichever Compose services were **previously created**,
+including the extra example and agent tool profiles; `make stop` does not
+implicitly initialize an unset profile. Container service dependencies
+start before the agent. The checkpoint is scoped to the same project-key
+used by Codex state, and project labels/mounts are checked again before
+starting. If IDs no longer exist or mount configuration changed, `make start`
+fails safely. Repeated `make stop` without a start does not erase recovery
+data; successful `make start` clears the checkpoint.
+
+`make up`/`make up-example` remain the provisioning/updating commands
+for first start, changed images or previously absent services.
+`make down` removes Compose service containers rather than just stopping
+them. `make clean` forcibly removes project resources.
+
+Stopping/restarting preserves bind-mounted Codex/Serena data, the workspace,
+PostgreSQL named volume, and the writable layer of each existing container.
+It **does not preserve running processes or RAM**. In particular the example
+Redis has both RDB saves and AOF disabled and loses volatile keys after stop.
+Close active Codex sessions before calling `make stop`.
+
+
 
 ## Configurable project commands
 
