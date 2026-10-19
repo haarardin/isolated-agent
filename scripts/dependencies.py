@@ -221,6 +221,34 @@ def parse(path=CONFIG):
     return data
 
 
+def lsp_configuration_warnings(data):
+    """Advise when a locally installed C/C++ LSP is invisible to Serena.
+
+    A missing declarative binding is allowed (some tools use their own
+    download flow), but on isolated networks it causes the original
+    'cpp: Error extracting archive' problem despite clangd being installed.
+    """
+    apt_packages = data.get("apt", {}).get("packages", [])
+    have_clangd = any(p == "clangd" or p.startswith("clangd-") for p in apt_packages)
+    if not have_clangd:
+        return []
+    warnings = []
+    for tool in enabled(data):
+        if (tool.get("id") == "serena"
+                and tool.get("kind") == "mcp"
+                and tool.get("placement") == "embedded"
+                and tool.get("lsp") is None):
+            warnings.append(
+                "Serena is enabled and apt installs clangd, but no "
+                "[agent_tools.lsp] is configured. For offline cpp analysis, "
+                "add [agent_tools.lsp] with adapter = \"serena\" and "
+                "servers = { cpp = \"/usr/bin/clangd\" } before "
+                "[agent_tools.integration]. Otherwise Serena may attempt "
+                "to download clangd and fail with 'Error extracting archive'."
+            )
+    return warnings
+
+
 def run_line(command):
     return "RUN " + json.dumps(["/bin/bash", "-euo", "pipefail", "-c", command])
 
@@ -383,6 +411,8 @@ def main():
         data = parse(args.config)
         if args.action == "validate":
             print("Dependencies config valid")
+            for warning in lsp_configuration_warnings(data):
+                print("WARNING:", warning, file=sys.stderr)
             return 0
         if args.action == "tool-state":
             prepare_tool_state(data)
@@ -398,6 +428,9 @@ def main():
             return 0
         summary = generate(data)
         print("Dependencies:", summary)
+        if args.action == "plan":
+            for warning in lsp_configuration_warnings(data):
+                print("WARNING:", warning, file=sys.stderr)
         if args.action != "build":
             return 0
         subprocess.run([args.engine, "build", "-f", str(OUT / "Containerfile.dependencies"),
