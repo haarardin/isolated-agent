@@ -92,5 +92,9 @@ fi
 printf "CODEX_HOME:       writable runtime state\n"
 printf "Cache:            writable runtime state\n"
 printf "Root filesystem:  read-only\n"
+# Check the effective global LSP bindings, not merely installed executables.
+# A full Serena symbol/LSP startup probe is available via make lsp-doctor.
+bash /usr/local/bin/isolated-agent-tool-lsp-runtime check
+
 printf "Runtime doctor:   OK\n"
 '
