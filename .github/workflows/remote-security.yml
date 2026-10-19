@@ -244,11 +244,19 @@ jobs:
                 bash /usr/local/bin/isolated-agent-tool-lsp-runtime probe
               '
           done
-          grep -Fq 'ls_path: /usr/bin/clangd' "$scratch/serena/serena_config.yml"
-          if grep -Rq 'Downloading from https://github.com/clangd' "$scratch/serena/logs"; then
-            echo "Unexpected managed clangd download attempt" >&2
-            exit 1
-          fi
+          # Runtime state is root-owned in Docker: inspect it as container
+          # root rather than asking GitHub's non-root runner to read it.
+          docker run --rm --network none \
+            -v "$scratch/serena:/state:ro" \
+            -v "$scratch/workspace:/workspace:ro" \
+            --entrypoint /bin/bash localhost/isolated-agent-project:ci-serena-cpp -ec '
+              grep -Fq "ls_path: /usr/bin/clangd" /state/serena_config.yml
+              grep -Rq "argv\\[0\\]: /usr/bin/clangd" /workspace/.serena/logs/health-checks
+              if grep -Rq "Downloading from https://github.com/clangd" /workspace/.serena/logs /state/logs 2>/dev/null; then
+                echo "Unexpected managed clangd download attempt" >&2
+                exit 1
+              fi
+            '
           echo "Serena cpp language server initialized twice offline with persistent state"
 
       - name: Verify projectless Remote workspace on read-only root
