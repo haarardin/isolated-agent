@@ -30,6 +30,17 @@ fi
 printf "Codex:           "
 codex --version
 
+# A bare copied codex executable supports --version/login but cannot
+# bootstrap the default managed app-server daemon (Codex >=0.157).
+cli_executable="$(readlink -f "$(command -v codex)")"
+package_root="$(dirname "$(dirname "$cli_executable")")"
+if [ ! -f "$package_root/codex-package.json" ] ||
+   [ ! -x "$package_root/bin/codex-code-mode-host" ]; then
+  printf "ERROR: incomplete Codex runtime package for managed daemon: %s\n" "$cli_executable" >&2
+  exit 1
+fi
+printf "Codex package:   complete (%s)\n" "$package_root"
+
 workspace="$(pwd -P)"
 if [ "$workspace" != "/workspace" ]; then
   printf "ERROR: agent working directory is %s, expected /workspace\n" "$workspace" >&2
