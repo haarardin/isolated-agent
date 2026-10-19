@@ -263,7 +263,7 @@ jobs:
             -e CODEX_PROJECT_KEY="$key" \
             -v "$folder:/root/.codex" \
             localhost/isolated-agent-project:ci \
-            sh -ec 'codex --version; test -x /usr/local/bin/codex; mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
+            sh -ec 'codex --version; test -x /usr/local/bin/codex; package="$(dirname "$(readlink -f "$(command -v codex)")")/.."; test -f "$package/codex-package.json"; test -x "$package/bin/codex-code-mode-host"; test -x "$package/codex-path/rg"; mkdir -p "$CODEX_HOME/memories"; echo bind-ok > "$CODEX_HOME/memories/test.txt"'
           docker run --rm --read-only --network none \
             -e CODEX_PROJECT_KEY="$key" \
             -v "$folder:/root/.codex" \
@@ -289,4 +289,7 @@ jobs:
               codex app-server daemon --help >/dev/null
               test -x /root/.codex/packages/standalone/current/codex
               test -x /usr/local/bin/codex
+              test -f /opt/isolated-agent/codex-standalone/current/codex-package.json
+              test "$(readlink -f /usr/local/bin/codex)" = "$(readlink -f /root/.local/bin/codex)"
+              test "$(readlink -f /usr/local/bin/codex)" = "$(readlink -f /opt/isolated-agent/codex-standalone/current/bin/codex)"
             '
