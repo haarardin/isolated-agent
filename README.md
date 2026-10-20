@@ -173,6 +173,10 @@ We still keep the outer controls:
 - `podman-compose` available as the Compose provider
 
 `podman compose` is itself only a provider wrapper and prefers `docker-compose` when both providers are installed. This project therefore does not rely on provider auto-selection: all project commands go through `scripts/compose.sh`, which invokes `podman-compose` directly. This avoids requiring a Podman API service socket for ordinary local orchestration.
+For direct `scripts/compose.sh` invocations the wrapper resolves `COMPOSE_PROJECT_NAME`
+and `AGENT_NETWORK_NAME` from this checkout's `.env`, unless explicitly set in
+its environment. For full container provisioning use Make, which additionally
+computes project-specific paths, volumes and image identities.
 
 ## Quick start
 

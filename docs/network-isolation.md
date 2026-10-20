@@ -125,6 +125,14 @@ an unused `/24`; an existing same-named network keeps its original CIDR.
 `scripts/network-preflight.py` checks overlaps and validates reuse.
 Never silently attach to an older unrestricted same-name network.
 
+Direct `scripts/compose.sh` calls now resolve `COMPOSE_PROJECT_NAME` and
+`AGENT_NETWORK_NAME` from the active checkout's `.env` when not exported,
+so they cannot silently fall back to the demo network. Use Make for normal
+provisioning. The Squid template uses `pid_filename none` to prevent a
+persistent `/run/squid.pid` (PID 1) from blocking `make stop` → `make start`.
+An already-created Squid container with a stale bind-mounted config must
+be recreated independently after rendering the new configuration.
+
 Change and test configuration:
 
 ```bash

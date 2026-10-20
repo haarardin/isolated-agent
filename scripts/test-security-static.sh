@@ -11,6 +11,9 @@ remote=Path("scripts/remote-control.sh").read_text()
 assert "external: true" in agent
 assert "name: ${AGENT_NETWORK_NAME:-isolated-agent-demo_isolated-dev}" in agent
 assert "AGENT_NETWORK_NAME ?= $(COMPOSE_PROJECT_NAME)_isolated-dev" in mk
+assert "pid_filename none" in Path("config/squid.conf").read_text()
+assert "read_setting COMPOSE_PROJECT_NAME" in Path("scripts/compose.sh").read_text()
+assert "read_setting AGENT_NETWORK_NAME" in Path("scripts/compose.sh").read_text()
 assert '--network-name "$(AGENT_NETWORK_NAME)"' in mk
 assert "io.isolated-agent.network" in Path("scripts/network-preflight.py").read_text()
 assert "network-ensure:" in mk

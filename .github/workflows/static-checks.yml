@@ -17,6 +17,9 @@ jobs:
       - name: Validate workspace project context
         run: make test-project-context-static
 
+      - name: Validate direct Compose project/network identity
+        run: make test-compose-context-static
+
       - name: Validate image reuse logic
         run: make test-image-reuse-static
 
