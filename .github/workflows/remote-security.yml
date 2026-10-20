@@ -18,6 +18,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py' -v
           make test-image-reuse-static
           make test-project-context-static
+          make test-compose-context-static
           bash scripts/test-tool-lifecycle-static.sh
       - name: Verify Compose web, offline, generic tools and optional services
         run: |
@@ -159,6 +160,33 @@ jobs:
             -v "$PWD/.state/squid.conf:/etc/squid/squid.conf:ro" \
             -v "$PWD/.state/blocked-cidrs.txt:/etc/squid/blocked-cidrs.txt:ro" \
             ubuntu/squid:6.6-24.04_edge -k parse -f /etc/squid/squid.conf
+      - name: Squid foreground stop/start regression
+        run: |
+          set -Eeuo pipefail
+          name="isolated-agent-squid-restart-test"
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker create --name "$name" --network none \
+            --cap-drop ALL --cap-add SETUID --cap-add SETGID \
+            --security-opt no-new-privileges:true \
+            --entrypoint /usr/sbin/squid \
+            -v "$PWD/.state/squid.conf:/etc/squid/squid.conf:ro" \
+            -v "$PWD/.state/blocked-cidrs.txt:/etc/squid/blocked-cidrs.txt:ro" \
+            ubuntu/squid:6.6-24.04_edge -N -f /etc/squid/squid.conf
+          docker start "$name"
+          sleep 3
+          if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
+            docker logs "$name"; exit 1
+          fi
+          docker stop "$name"
+          docker start "$name"
+          sleep 3
+          if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
+            docker logs "$name"; exit 1
+          fi
+          if docker logs "$name" 2>&1 | grep -q 'FATAL: Squid is already running'; then
+            docker logs "$name"; exit 1
+          fi
+          echo 'Squid successfully resumed after stop/start'
   codex-cli-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 25
