@@ -72,6 +72,9 @@ disable safeguards, or submit without approval.
   ./job-apply/run.sh approve <id>
   It creates /workspace/approvals/<id>.json, bound to the URL, PDF hashes,
   vacancy, cover letter text and questionnaire answers.
+- Immediately BEFORE final submission, run:
+  python3 /opt/jobapply/jobctl.py check-approval <id>
+  If that command fails, do not click Submit.
 - The agent MUST verify this approval and its hash match before clicking final
   submit. Host approval does not replace any required explicit user chat consent.
 - Do not create, modify or delete /workspace/approvals entries.

@@ -359,6 +359,22 @@ def approve(root, ident):
     os.chmod(approval, 0o600)
     print("APPROVED " + ident + " (single use, only matching document hashes)")
 
+def check_approval(root, ident):
+    """Validate current user authorization BEFORE final browser submission."""
+    directory = app_dir(root, ident)
+    st = read_json(directory / "status.json")
+    if st["status"] != "awaiting_approval":
+        raise ValueError("Application is not awaiting approval")
+    path = root / "approvals" / (ident + ".json")
+    if not path.is_file():
+        raise ValueError("Missing host-side approval")
+    approval = read_json(path)
+    if (approval.get("application") != ident
+            or approval.get("url") != st["url"]
+            or approval.get("artifact_digest") != artifact_digest(directory)):
+        raise ValueError("Approval does not match current vacancy or documents/answers")
+    print("APPROVAL VERIFIED", ident)
+
 def submitted(root, ident, evidence):
     directory = app_dir(root, ident)
     obj = read_json(directory / "status.json")
@@ -410,7 +426,7 @@ def main():
     prep.add_argument("id")
     prep.add_argument("--focus", choices=("rtc", "backend"), default="rtc")
     prep.add_argument("--short-letter", action="store_true")
-    for name in ("approve", "status"):
+    for name in ("approve", "status", "check-approval"):
         p = sub.add_parser(name)
         p.add_argument("id")
     done = sub.add_parser("submitted")
@@ -430,6 +446,7 @@ def main():
     elif args.cmd == "prepare": render(root, args.id, args.focus, args.short_letter)
     elif args.cmd == "approve": approve(root, args.id)
     elif args.cmd == "submitted": submitted(root, args.id, args.evidence)
+    elif args.cmd == "check-approval": check_approval(root, args.id)
     elif args.cmd == "status": print(json.dumps(read_json(app_dir(root, args.id) / "status.json"), indent=2))
     elif args.cmd == "smoke": smoke(root)
     elif args.cmd == "audit": audit(root, args.id)

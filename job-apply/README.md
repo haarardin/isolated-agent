@@ -80,7 +80,9 @@ Review it, including the actual ATS form and any required answers. On the host:
 
 The approval binds the exact URL, generated PDF hashes, cover letter text,
 vacancy metadata and application answers. Then tell Codex
-explicitly that it may send this application. After seeing real confirmation,
+explicitly that it may send this application. Immediately before final Submit,
+Codex must run `python3 /opt/jobapply/jobctl.py check-approval <id>` and
+must stop if authorization is not valid. After seeing real confirmation,
 Codex may record the receipt with jobctl.py submitted <id> --evidence ... .
 A possibly submitted application must not be retried automatically.
 
