@@ -25,6 +25,9 @@ Directories under job-apply/state are private and gitignored:
     state/captures/          browser screenshots
     state/downloads/         browser downloads
 
+The master JSON/DOCX are read-only to Codex. For explicit master edits,
+use master.sh start to stage a private editable copy under applications/master-drafts,
+then master.sh promote after reviewing; it validates and backs up the old files.
 The installer places empty examples in candidate/. Import your verified
 master-resume.json, profile.json, answers.json and master-resume.docx before
 processing a real application. Optional master-cover-letter.docx is supported.
@@ -41,6 +44,8 @@ A separate private candidate ZIP can be extracted into job-apply/state/ after in
     ./job-apply/run.sh browser headless  # return to automation
     ./job-apply/run.sh down              # retains all data
     ./job-apply/smoke.sh
+    ./job-apply/master.sh start            # draft changes to authoritative resume
+    ./job-apply/master.sh promote <id>     # host-only review and backup
 
 Headed browser viewing is available in any local browser at
 http://127.0.0.1:6080/vnc.html (noVNC) or through a VNC viewer at
