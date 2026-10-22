@@ -281,11 +281,15 @@ def render(root, ident, focus, short_letter):
     print("PREPARED " + ident + " (approval required)\n" + json.dumps(qa, indent=2))
 
 def artifact_digest(directory):
-    paths = [directory / "resume.pdf", directory / "cover-letter.pdf", directory / "status.json"]
-    st = read_json(paths[2])
+    # Bind permission to every candidate-facing answer and submitted file.
+    st = read_json(directory / "status.json")
     h = hashlib.sha256(st["url"].encode())
-    for path in paths[:2]:
-        h.update(hashlib.sha256(path.read_bytes()).digest())
+    for name in ("resume.pdf", "cover-letter.pdf", "cover-letter.txt",
+                 "answers.json", "vacancy.json"):
+        path = directory / name
+        if not path.is_file():
+            raise ValueError("Missing approval artifact: " + name)
+        h.update(name.encode() + b"\0" + hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 
 

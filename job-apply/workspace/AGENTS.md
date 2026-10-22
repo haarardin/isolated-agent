@@ -38,6 +38,7 @@ disable safeguards, or submit without approval.
    The deterministic first draft selects only verified master resume bullet IDs.
    If candidate data is incomplete, request input; never fabricate.
 5. Personalize cover-letter.txt and matching cover-letter.docx / PDF using DOCX MCP
+   with track_changes=false or accept all revisions before final export.
    when needed. Run jobctl.py rebuild <id> to regenerate PDF and text; then
    jobctl.py audit <id> before asking for host approval. Use only factual
    bullet statements from the master. Explain the
@@ -47,12 +48,14 @@ disable safeguards, or submit without approval.
 6. Use the prepared PDF/DOCX only from /workspace/applications/<id> for uploads.
    Browser service has read-only access to this same directory. Fill every
    required form field, supporting multi-step forms, dynamic controls, checkboxes
-   and dropdowns. Unknown questions must be asked, not guessed. Use cover-letter.txt
+   and dropdowns. Record the exact values of ALL form answers in
+   /workspace/applications/<id>/answers.json before requesting approval.
+   Unknown questions must be asked, not guessed. Use cover-letter.txt
    for text fields, a file for upload fields.
 7. Review actual form values and screenshots before final submit. Stop on CAPTCHA,
    anti-bot checks, 2FA, third-party auth or a site requiring the candidate's own
    words; request manual intervention. Never bypass protection. Use headed
-   browser (localhost:5901 VNC via host) for human login.
+   browser (http://127.0.0.1:6080/vnc.html on the host) for human login.
 8. Output a concise review: company, role, URL, geography, files, additional
    answers, missing details, and submit button state. The default is to STOP HERE.
 
@@ -62,7 +65,8 @@ disable safeguards, or submit without approval.
   until the human explicitly approves this exact vacancy and documents.
 - Approval is created OUTSIDE the agent (host):
   ./job-apply/run.sh approve <id>
-  It creates /workspace/approvals/<id>.json, bound to the URL and PDF hashes.
+  It creates /workspace/approvals/<id>.json, bound to the URL, PDF hashes,
+  vacancy, cover letter text and questionnaire answers.
 - The agent MUST verify this approval and its hash match before clicking final
   submit. Host approval does not replace any required explicit user chat consent.
 - Do not create, modify or delete /workspace/approvals entries.

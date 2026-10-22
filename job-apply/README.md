@@ -73,7 +73,8 @@ Review it, including the actual ATS form and any required answers. On the host:
 
     ./job-apply/run.sh approve <id>
 
-The approval binds the exact URL and generated PDF hashes. Then tell Codex
+The approval binds the exact URL, generated PDF hashes, cover letter text,
+vacancy metadata and application answers. Then tell Codex
 explicitly that it may send this application. After seeing real confirmation,
 Codex may record the receipt with jobctl.py submitted <id> --evidence ... .
 A possibly submitted application must not be retried automatically.
