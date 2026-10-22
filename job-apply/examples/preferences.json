@@ -1,0 +1,8 @@
+{
+  "language": "en",
+  "confirmation_required": true,
+  "auto_submit_allowlist": [],
+  "resume_focus_default": "rtc",
+  "maximum_resume_pages": 5,
+  "remote_only": true
+}

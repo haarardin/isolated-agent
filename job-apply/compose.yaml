@@ -1,0 +1,47 @@
+services:
+  agent:
+    image: localhost/isolated-job-apply:dev
+    command: ["sleep", "infinity"]
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    environment:
+      HOME: /root
+      CODEX_HOME: /root/.codex
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./state/codex:/root/.codex:rw
+      - ./state/cache:/root/.cache:rw
+      - ./state/candidate:/workspace/candidate:ro
+      - ./state/applications:/workspace/applications:rw
+      - ./state/approvals:/workspace/approvals:ro
+      - ./state/captures:/workspace/captures:ro
+      - ./workspace/AGENTS.md:/workspace/AGENTS.md:ro
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=512m", "/run:rw,nosuid,nodev,size=64m"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    networks: ["jobnet"]
+  browser:
+    image: localhost/isolated-job-apply:dev
+    entrypoint: ["/opt/jobapply/browser-start.sh"]
+    environment:
+      BROWSER_MODE: ${BROWSER_MODE:-headless}
+      HOME: /tmp
+      DISPLAY: ":99"
+    volumes:
+      - ./state/browser-profile:/browser-profile:rw
+      - ./state/applications:/workspace/applications:ro
+      - ./state/captures:/workspace/captures:rw
+      - ./state/downloads:/workspace/downloads:rw
+      - ./state/vnc:/secrets:ro
+    ports:
+      - "127.0.0.1:${VNC_PORT:-5901}:5900"
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=1024m", "/run:rw,nosuid,nodev,size=64m"]
+    shm_size: "1gb"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    networks: ["jobnet"]
+networks:
+  jobnet: {}
