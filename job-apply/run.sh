@@ -20,6 +20,7 @@ case "$cmd" in
   status) python3 jobctl.py --root "$STATE" status "$2" ;;
   approve)
     [[ -n "${2:-}" ]] || { echo "Usage: run.sh approve APP-ID" >&2; exit 2; }
+    compose exec -T agent python3 /opt/jobapply/jobctl.py audit "$2"
     python3 jobctl.py --root "$STATE" approve "$2" ;;
   browser)
     mode="${2:-}"

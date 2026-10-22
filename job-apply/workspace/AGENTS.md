@@ -38,7 +38,9 @@ disable safeguards, or submit without approval.
    The deterministic first draft selects only verified master resume bullet IDs.
    If candidate data is incomplete, request input; never fabricate.
 5. Personalize cover-letter.txt and matching cover-letter.docx / PDF using DOCX MCP
-   when needed. Use only factual bullet statements from the master. Explain the
+   when needed. Run jobctl.py rebuild <id> to regenerate PDF and text; then
+   jobctl.py audit <id> before asking for host approval. Use only factual
+   bullet statements from the master. Explain the
    relevance to this specific job; avoid generic or flattering claims. For any
    post-render edit regenerate PDF with LibreOffice, visually examine PDF preview
    images and confirm content against the source. Do not change the originals.

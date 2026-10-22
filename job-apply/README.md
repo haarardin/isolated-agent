@@ -29,6 +29,7 @@ The installer places empty examples in candidate/. Import your verified
 master-resume.json, profile.json, answers.json and master-resume.docx before
 processing a real application. Optional master-cover-letter.docx is supported.
 Sensitive candidate files are NEVER published to this public repository.
+A separate private candidate ZIP can be extracted into job-apply/state/ after installation.
 
 ## Commands
 
@@ -62,6 +63,9 @@ Codex creates a record and prepares artifacts with:
     # Then update applications/<id>/vacancy.json after reading the vacancy.
     python3 /opt/jobapply/jobctl.py prepare <id> --focus rtc
     python3 /opt/jobapply/jobctl.py status <id>
+    python3 /opt/jobapply/jobctl.py rebuild <id>  # after DOCX MCP edits: PDF and letter text
+    python3 /opt/jobapply/jobctl.py audit <id>    # validate without changing files
+    python3 /opt/jobapply/jobctl.py block <id> --status manual_action_required --reason "CAPTCHA"
 
 A prepared application is awaiting approval and cannot be regenerated in place.
 Review it, including the actual ATS form and any required answers. On the host:

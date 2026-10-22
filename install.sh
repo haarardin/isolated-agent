@@ -45,6 +45,7 @@ else
 fi
 [[ -f "$STATE/browser-mode" ]] || printf 'headless\n' > "$STATE/browser-mode"
 cd "$ROOT"
+python3 -m unittest discover -s job-apply -p test_state.py
 make ensure-codex-image
 if ! podman image exists localhost/isolated-job-apply:dev || [[ "${1:-}" == "--rebuild" ]]; then
   podman build -f job-apply/Containerfile \

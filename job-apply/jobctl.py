@@ -95,19 +95,26 @@ def new_record(root, url, company, role):
     })
     print(ident)
 
-def choose_bullets(master, focus):
+def choose_bullets(master, focus, requirements):
     terms = {
-        "rtc": {"sip", "webrtc", "rtp", "rtcp", "sdp", "gst", "gstreamer", "media", "bfcp", "video", "sfU"},
+        "rtc": {"sip", "webrtc", "rtp", "rtcp", "sdp", "gstreamer", "media", "bfcp", "video", "sfu"},
         "backend": {"go", "backend", "architecture", "grpc", "postgresql", "redis", "microservices", "rabbitmq", "websocket"}
     }.get(focus)
     if terms is None:
         raise ValueError("Focus must be rtc or backend")
+    requested = set(re.findall(r"[a-z0-9.+-]+", " ".join(requirements).lower()))
+    requested -= {"with", "the", "for", "and", "our", "you", "will", "work", "experience", "years", "team"}
     selected = []
     for idx, job in enumerate(master["experience"]):
         bullets = job.get("bullets", [])
-        ranked = sorted(bullets, key=lambda b: (
-            -len(set(t.lower() for t in b.get("tags", [])) & set(t.lower() for t in terms)),
-            bullets.index(b)))
+        def ranking(b):
+            tags = {t.lower() for t in b.get("tags", [])}
+            mentioned = set(re.findall(r"[a-z0-9.+-]+", b["text"].lower()))
+            return (-(4 * len(tags & requested) +
+                      2 * len(tags & terms) +
+                      min(5, len(mentioned & requested))),
+                    bullets.index(b))
+        ranked = sorted(bullets, key=ranking)
         limit = 6 if idx == 0 else (4 if idx == 1 else 2)
         selected.append((job, ranked[:limit]))
     return selected
@@ -151,7 +158,7 @@ def convert(docx_path, output_dir):
            "--headless", "--convert-to", "pdf", "--outdir",
            str(output_dir), str(docx_path)]
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-    pdf = docx_path.with_suffix(".pdf")
+    pdf = output_dir / (docx_path.stem + ".pdf")
     if res.returncode != 0 or not pdf.is_file():
         raise RuntimeError("LibreOffice conversion failed: " + res.stdout + res.stderr)
     return pdf
@@ -198,12 +205,14 @@ def render(root, ident, focus, short_letter):
     vacancy = read_json(directory / "vacancy.json")
     if vacancy["url"] != existing["url"]:
         raise ValueError("Vacancy URL changed")
+    if not vacancy.get("requirements") or not vacancy.get("reviewed_at"):
+        raise ValueError("Vacancy requirements must first be verified from the live posting")
     if not master.get("experience") or not master.get("skills") or not profile.get("name"):
         raise ValueError("Master resume/profile incomplete. Import your private candidate data")
     contact = profile.get("contact", {})
     if not contact.get("email"):
         raise ValueError("Missing contact.email")
-    selected = choose_bullets(master, focus)
+    selected = choose_bullets(master, focus, vacancy['requirements'])
     tpl = root / "candidate/master-resume.docx"
     doc = setup_doc(tpl)
     para(doc, profile["name"], bold=True, size=15)
@@ -277,6 +286,59 @@ def artifact_digest(directory):
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 
+
+def audit(root, ident, refresh=False):
+    from docx import Document
+    directory = app_dir(root, ident)
+    st = read_json(directory / "status.json")
+    if st["status"] not in ("prepared", "awaiting_approval", "manual_action_required", "failed"):
+        raise ValueError("Only an existing unsubmitted application can be audited")
+    master = read_json(root / "candidate/master-resume.json")
+    profile = read_json(root / "candidate/profile.json")
+    allowed = {b["text"] for job in master["experience"] for b in job.get("bullets", [])}
+    doc = Document(str(directory / "resume.docx"))
+    for p in doc.paragraphs:
+        line = p.text.strip()
+        if line.startswith("•") and line.lstrip("•").strip() not in allowed:
+            raise ValueError("Resume bullet not present in immutable master: " + line[:90])
+    if refresh:
+        if (root / "approvals" / (ident + ".json")).exists():
+            raise ValueError("Already approved. Revoke the host approval before editing documents.")
+        with tempfile.TemporaryDirectory(prefix=".build-", dir=directory) as temp:
+            dest = Path(temp)
+            for kind in ("resume", "cover-letter"):
+                source = directory / (kind + ".docx")
+                fresh = convert(source, dest)
+                os.replace(fresh, directory / (kind + ".pdf"))
+        letter = Document(str(directory / "cover-letter.docx"))
+        (directory / "cover-letter.txt").write_text(
+            "\n\n".join(p.text for p in letter.paragraphs) + "\n", encoding="utf-8")
+    vacancy = read_json(directory / "vacancy.json")
+    result = {
+        "resume": validate_doc(directory / "resume.docx", directory / "resume.pdf",
+                               [profile["name"], "Professional Experience"], 5),
+        "cover_letter": validate_doc(directory / "cover-letter.docx", directory / "cover-letter.pdf",
+                                    [profile["name"], vacancy["role"]], 2),
+        "audited_at": timestamp()
+    }
+    write_json(directory / "quality.json", result)
+    print("AUDIT OK " + ident + "\n" + json.dumps(result, indent=2))
+
+def block(root, ident, status_value, reason):
+    if status_value not in ("failed", "manual_action_required") or not reason.strip():
+        raise ValueError("Use failed/manual_action_required and a nonempty reason")
+    directory = app_dir(root, ident)
+    state(directory, status_value, error_reason=reason)
+    print("BLOCKED " + ident + ": " + reason)
+
+def resume(root, ident):
+    directory = app_dir(root, ident)
+    obj = read_json(directory / "status.json")
+    if obj["status"] not in ("failed", "manual_action_required"):
+        raise ValueError("Not a resumable paused application")
+    state(directory, "awaiting_approval", error_reason=None)
+    print("RESUMED " + ident + " (approval still required)")
+
 def approve(root, ident):
     directory = app_dir(root, ident)
     obj = read_json(directory / "status.json")
@@ -349,6 +411,13 @@ def main():
     done.add_argument("id")
     done.add_argument("--evidence", required=True)
     sub.add_parser("smoke")
+    for name in ("audit", "rebuild", "resume"):
+        p = sub.add_parser(name)
+        p.add_argument("id")
+    pause = sub.add_parser("block")
+    pause.add_argument("id")
+    pause.add_argument("--status", choices=("failed", "manual_action_required"), required=True)
+    pause.add_argument("--reason", required=True)
     args = parser.parse_args()
     root = args.root.resolve()
     if args.cmd == "new": new_record(root, args.url, args.company, args.role)
@@ -357,6 +426,10 @@ def main():
     elif args.cmd == "submitted": submitted(root, args.id, args.evidence)
     elif args.cmd == "status": print(json.dumps(read_json(app_dir(root, args.id) / "status.json"), indent=2))
     elif args.cmd == "smoke": smoke(root)
+    elif args.cmd == "audit": audit(root, args.id)
+    elif args.cmd == "rebuild": audit(root, args.id, refresh=True)
+    elif args.cmd == "resume": resume(root, args.id)
+    elif args.cmd == "block": block(root, args.id, args.status, args.reason)
 
 if __name__ == "__main__":
     try:
