@@ -59,6 +59,7 @@ if [[ ! -f "$STATE/vnc/passwd" ]]; then
      sh -c 'IFS= read -r secret; x11vnc -storepasswd "$secret" /secrets/passwd >/dev/null'
   chmod 600 "$STATE/vnc/"{passwd,password.txt}
 fi
+if [[ "${1:-}" == "--rebuild" ]]; then "$APP/run.sh" down; fi
 "$APP/run.sh" up
 "$APP/smoke.sh"
 cat <<'INFO'
@@ -67,6 +68,6 @@ Import your existing baseline DOCX into master-resume.docx there.
 Authenticate: ./job-apply/run.sh login
 Start agent:  ./job-apply/run.sh agent
 Headed mode:  ./job-apply/run.sh browser headed
-VNC (loopback only): localhost:5901; password: job-apply/state/vnc/password.txt
+Browser (loopback only): http://127.0.0.1:6080/vnc.html; password: job-apply/state/vnc/password.txt
 See job-apply/README.md; never commit job-apply/state/.
 INFO

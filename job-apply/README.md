@@ -42,8 +42,9 @@ A separate private candidate ZIP can be extracted into job-apply/state/ after in
     ./job-apply/run.sh down              # retains all data
     ./job-apply/smoke.sh
 
-Headed browser VNC is bound to 127.0.0.1:5901 only. A VNC viewer can
-connect locally. On a remote Debian server tunnel 5901 over SSH. Password is
+Headed browser viewing is available in any local browser at
+http://127.0.0.1:6080/vnc.html (noVNC) or through a VNC viewer at
+127.0.0.1:5901. Both ports are loopback-only. On a remote Debian server tunnel 5901 over SSH. Password is
 in job-apply/state/vnc/password.txt (8 random characters; classic VNC limit).
 When changing modes, existing browser pages will close; cookies persist.
 Never expose VNC or the Playwright MCP HTTP endpoint to the Internet.

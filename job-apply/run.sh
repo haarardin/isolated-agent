@@ -30,7 +30,7 @@ case "$cmd" in
     compose up -d --force-recreate browser
     echo "Browser mode: $mode"
     if [[ "$mode" == headed ]]; then
-      echo "VNC: localhost:5901 (via SSH tunnel for a remote host)"
+      echo "noVNC: http://127.0.0.1:6080/vnc.html or VNC: localhost:5901"
       echo "Password stored in state/vnc/password.txt"
     fi ;;
   help|*) cat <<'HELP'

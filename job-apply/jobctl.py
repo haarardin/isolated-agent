@@ -257,9 +257,11 @@ def render(root, ident, focus, short_letter):
         if bullets:
             highlights.append(bullets[0]["text"])
     if highlights:
-        para(letter, "Relevant experience includes " + highlights[0][0].lower() + highlights[0][1:].rstrip(".") + ".")
+        para(letter, "At " + selected[0][0]["company"] + ", I " +
+             highlights[0][0].lower() + highlights[0][1:].rstrip(".") + ".")
     if len(highlights) > 1 and not short_letter:
-        para(letter, "I have also " + highlights[1][0].lower() + highlights[1][1:].rstrip(".") + ".")
+        para(letter, "At " + selected[1][0]["company"] + ", I also " +
+             highlights[1][0].lower() + highlights[1][1:].rstrip(".") + ".")
     para(letter, "I would welcome a conversation about the engineering challenges of this role.")
     para(letter, "Kind regards,")
     para(letter, profile["name"])
