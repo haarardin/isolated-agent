@@ -60,7 +60,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: opencode opencode-mcp opencode-serve test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -92,6 +92,9 @@ help:
 	  'make recreate-agent Recreate only the agent container' \
 	  'make login          Authenticate Codex using device flow' \
 	  'make codex          Open interactive Codex CLI' \
+	  'make opencode       Open OpenCode V2 (optional Agent Tool)' \
+	  'make opencode-mcp   Inspect OpenCode MCP connections' \
+	  'make opencode-serve Start OpenCode API on container loopback' \
 	  'make shell          Open a shell inside the agent' \
 	  'make test           Run the project unit-test command' \
 	  'make race           Run Go race tests' \
@@ -328,6 +331,17 @@ login:
 
 codex:
 	$(COMPOSE) exec agent codex
+
+# The optional OpenCode V2 CLI is installed with the generic Agent Tools
+# manifest. Do not publish the agent API as a host port.
+opencode:
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
+
+opencode-mcp:
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode mcp list
+
+opencode-serve:
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode serve --hostname 127.0.0.1 --port 4096
 
 shell:
 	$(COMPOSE) exec agent bash
