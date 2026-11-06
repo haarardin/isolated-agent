@@ -1,13 +1,16 @@
 # OpenCode V2 alongside Codex (initial integration)
 
-The existing Codex CLI remains the default and works unchanged. OpenCode V2
+The existing Codex CLI remains the default and works unchanged. Selection
+is controlled by `AGENT_RUNTIME` in `.env`, with `make agent` as the shared
+entrypoint. Registered runtimes live in `config/agent-runtimes.json`. OpenCode V2
 is an optional **embedded Agent Tool** running in the **same rootless Podman
 agent** with the same /workspace and installed MCP toolchain.
 
 ## Enable
 
 In `dependencies/dependencies.toml`, change `enabled = false` to `true`
-**only** for `id = "opencode"`. This installs pinned
+**only** for `id = "opencode"`. Set `AGENT_RUNTIME=opencode` in `.env`.
+This selects the OpenCode CLI when running `make agent`. This installs pinned
 `@opencode/cli@2.0.0` via npm in the Dependencies image. It does NOT remove
 Codex or convert its auth. An image rebuild/recreate is necessary:
 
@@ -16,13 +19,20 @@ make deps-validate
 make deps-plan
 make build
 make up
-make opencode
+make agent
 make opencode-mcp
 ```
 
 Configure an OpenCode LLM provider using its own supported authentication
 mechanism. ChatGPT/Codex credentials are not implicitly reusable; never
 commit provider secrets to the source repository or bake them into images.
+
+Changing `AGENT_RUNTIME` only changes which existing CLI is launched.
+It does not install an agent. To add a new runtime later, install its CLI
+via the dependencies mechanism and add its executable argv to
+`config/agent-runtimes.json`. Unknown runtime names fail before Podman is
+invoked. The existing `make codex` and `make opencode` commands are retained
+as direct-launch compatibility aliases.
 
 For headless execution after authentication:
 
