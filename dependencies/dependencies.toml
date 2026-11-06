@@ -33,6 +33,27 @@ packages = []
 # run = "echo 'custom trusted command'"
 
 # Optional generic Agent Tools: see dependencies/examples/go-serena.toml
+# OpenCode V2 is OFF by default. Set enabled = true to install alongside Codex.
+[[agent_tools]]
+id = "opencode"
+kind = "cli"
+placement = "embedded"
+enabled = false
+
+[[agent_tools.install]]
+type = "apt"
+packages = ["nodejs", "npm"]
+
+[[agent_tools.install]]
+type = "command"
+run = "npm install --global --no-audit --no-fund @opencode/cli@2.0.0"
+verify = ["opencode --version"]
+
+# Full XDG settings/data/state live in one project-scoped mount. Cache uses
+# the existing /root/.cache Compose volume.
+[agent_tools.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
 
 [project]
 # test = "go test ./..."
