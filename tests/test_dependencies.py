@@ -27,6 +27,8 @@ class DependencyTests(unittest.TestCase):
             self.assertEqual(manifest["sidecars"], [])
             self.assertIn("services: {}", (out / "compose.tools.yaml").read_text())
             self.assertEqual(tomllib.loads((out / "codex-mcp.toml").read_text()), {})
+            self.assertEqual(json.loads((out / "opencode-mcp.json").read_text()),
+                             {"$schema": "https://opencode.ai/config.json", "mcp": {"servers": {}}})
 
     def test_optional_go_and_serena(self):
         cfg = deps.parse(ROOT / "dependencies/examples/go-serena.toml")
@@ -39,6 +41,10 @@ class DependencyTests(unittest.TestCase):
             self.assertIn("serena-agent==1.7.0", img)
             self.assertIn("gopls@", img)
             self.assertEqual(mcp["mcp_servers"]["serena"]["command"],
+                             "/opt/agent-tools/serena/bin/serena")
+            oc = json.loads((out / "opencode-mcp.json").read_text())
+            self.assertEqual(oc["mcp"]["servers"]["serena"]["type"], "local")
+            self.assertEqual(oc["mcp"]["servers"]["serena"]["command"][0],
                              "/opt/agent-tools/serena/bin/serena")
             bindings = json.loads((out / "tool-lsp.json").read_text())
             self.assertEqual(len(bindings), 1)
@@ -122,6 +128,9 @@ command = "/opt/serena/bin/serena"
             self.assertEqual(manifest["sidecars"], ["index"])
             self.assertEqual(mcp["index"]["url"], "http://project-a-tool-index:8787/mcp")
             self.assertEqual(mcp["remote"]["url"], "https://example.org/mcp")
+            oc = json.loads((out / "opencode-mcp.json").read_text())["mcp"]["servers"]
+            self.assertEqual(oc["index"], {"type": "remote", "url": "http://project-a-tool-index:8787/mcp"})
+            self.assertEqual(oc["remote"], {"type": "remote", "url": "https://example.org/mcp"})
             self.assertIn("project-a-tool-index", compose)
             self.assertIn("read_only: true", compose)
             self.assertNotIn("privileged:", compose)
@@ -232,6 +241,23 @@ url="http://unsafe.example/mcp"
     def test_disabled_tools_still_validated(self):
         deps.parse(ROOT / "dependencies/examples/mcp-http.toml")
 
+    def test_optional_opencode_cli_and_scoped_state(self):
+        cfg = deps.parse()
+        self.assertEqual([x["id"] for x in deps.enabled(cfg)], [])
+        tool = next(x for x in cfg["agent_tools"] if x["id"] == "opencode")
+        self.assertFalse(tool["enabled"])
+        self.assertEqual(tool["state"]["target"], "/root/.isolated-opencode")
+        tool["enabled"] = True
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
+            out = Path(td)
+            deps.generate(cfg, out)
+            self.assertIn("@opencode/cli@2.0.0", (out / "Containerfile.dependencies").read_text())
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            self.assertNotIn("privileged:", compose)
+            self.assertNotIn("podman.sock", compose)
+            self.assertNotIn("docker.sock", compose)
+
     def test_generation_is_deterministic(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             first = deps.generate(deps.parse(), Path(a))
@@ -239,6 +265,8 @@ url="http://unsafe.example/mcp"
             self.assertEqual(first, second)
             self.assertEqual((Path(a) / "Containerfile.dependencies").read_bytes(),
                              (Path(b) / "Containerfile.dependencies").read_bytes())
+            self.assertEqual((Path(a) / "opencode-mcp.json").read_bytes(),
+                             (Path(b) / "opencode-mcp.json").read_bytes())
 
 
 if __name__ == "__main__":
