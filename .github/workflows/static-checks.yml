@@ -25,3 +25,6 @@ jobs:
 
       - name: Validate generic embedded MCP/Serena fixture
         run: python3 -m unittest discover -s tests -p 'test_dependencies.py' -v
+
+      - name: Validate selected agent dispatch and fail-closed behavior
+        run: python3 -m unittest discover -s tests -p 'test_agent_dispatch.py' -v

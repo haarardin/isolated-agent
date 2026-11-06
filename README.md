@@ -51,6 +51,19 @@ The environment uses four reusable image layers:
 Serena is **not** an intrinsic image layer or Compose service. To install it,
 enable `[[agent_tools]]` in `dependencies/dependencies.toml`.
 
+## Optional OpenCode V2 agent runtime
+
+[OpenCode V2](docs/opencode.md) can be enabled as a separate embedded CLI
+**alongside Codex**, using the same rootless Podman sandbox and enabled MCP
+tools. It is disabled by default, has its own project-scoped persisted state,
+and does not modify Codex auth, sessions, or normal Make targets.
+
+Set `AGENT_RUNTIME=codex` (default) or `AGENT_RUNTIME=opencode` in `.env`,
+then use **`make agent`** to launch the selected CLI. The dispatcher reads
+`config/agent-runtimes.json`, so future installed CLIs can be added without
+changing the Make target. Selecting OpenCode does not install it automatically:
+enable its optional Agent Tool and rebuild first (see [OpenCode setup](docs/opencode.md)).
+
 ## Persistent Codex and optional Agent Tool state
 
 The default Codex home, including auth, SQLite memories and session
@@ -224,11 +237,16 @@ Authenticate Codex once:
 make login
 ```
 
-Open Codex:
+Start the selected agent (Codex by default):
 
 ```bash
-make codex
+make agent
 ```
+
+To use OpenCode instead, set `AGENT_RUNTIME=opencode` in `.env`, first
+enable its optional Agent Tool and rebuild, then run the same `make agent`
+command. Existing `make codex` and `make opencode` targets remain available
+for direct, explicit launch.
 
 Open a regular shell:
 
@@ -594,7 +612,7 @@ make stop
 make start
 make deps-reconcile
 make login
-make codex
+make agent
 make shell
 make test
 make race

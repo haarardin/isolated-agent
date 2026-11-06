@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Podman Containerfiles, Compose sidecars and Codex MCP from TOML.
+"""Generate Podman Containerfiles, Compose sidecars and Codex/OpenCode MCP from TOML.
 
 Python >=3.11 stdlib only; install commands execute only inside build containers.
 """
@@ -359,6 +359,7 @@ def generate(data, folder=OUT):
         for t, path in agent_states:
             compose.append("      - " + json.dumps(str(path) + ":" + t["state"]["target"] + ":rw"))
     mcp = ["# Generated MCP configuration"]
+    opencode_servers = {}
     for tool in enabled(data):
         tid, where, kind = tool["id"], tool["placement"], tool["kind"]
         if where == "sidecar":
@@ -383,9 +384,11 @@ def generate(data, folder=OUT):
         mcp += ["", "[mcp_servers." + tid + "]"]
         if i["transport"] == "stdio":
             mcp += ["command = " + json.dumps(i["command"]), "args = " + json.dumps(i.get("args", []))]
+            opencode_servers[tid] = {"type": "local", "command": [i["command"], *i.get("args", [])]}
         else:
             url = i["url"] if where == "external" else ("http://" + project_name + "-tool-" + tid + ":" + str(tool["runtime"]["port"]) + i.get("path", "/mcp"))
             mcp += ["url = " + json.dumps(url)]
+            opencode_servers[tid] = {"type": "remote", "url": url}
     # An empty services mapping needs {}, but an agent-only overlay already
     # contains a valid mapping. Appending {} to its final volume line breaks
     # YAML parsing (notably for embedded Serena with persistent state).
@@ -393,6 +396,9 @@ def generate(data, folder=OUT):
         compose[1] = "services: {}"
     (folder / "compose.tools.yaml").write_text("\n".join(compose) + "\n")
     (folder / "codex-mcp.toml").write_text("\n".join(mcp) + "\n")
+    # V2 expects mcp.servers, not the V1 flat mcp.<name> layout.
+    opencode = {"$schema": "https://opencode.ai/config.json", "mcp": {"servers": opencode_servers}}
+    (folder / "opencode-mcp.json").write_text(json.dumps(opencode, indent=2, sort_keys=True) + "\n")
     # Consumer adapters are explicit. An empty file is a no-op at runtime.
     lsp_bindings = []
     for tool in enabled(data):
