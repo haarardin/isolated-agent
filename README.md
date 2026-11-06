@@ -51,6 +51,13 @@ The environment uses four reusable image layers:
 Serena is **not** an intrinsic image layer or Compose service. To install it,
 enable `[[agent_tools]]` in `dependencies/dependencies.toml`.
 
+## Optional OpenCode V2 agent runtime
+
+[OpenCode V2](docs/opencode.md) can be enabled as a separate embedded CLI
+**alongside Codex**, using the same rootless Podman sandbox and enabled MCP
+tools. It is disabled by default, has its own project-scoped persisted state,
+and does not modify Codex auth, sessions, or normal Make targets.
+
 ## Persistent Codex and optional Agent Tool state
 
 The default Codex home, including auth, SQLite memories and session
