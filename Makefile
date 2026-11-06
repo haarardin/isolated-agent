@@ -5,6 +5,9 @@ endif
 
 COMPOSE_PROJECT_NAME ?= isolated-agent-demo
 PROJECT_DIR ?= ./workspace
+# Main CLI selection in .env; make agent dispatches via trusted runtime registry.
+AGENT_RUNTIME ?= codex
+export AGENT_RUNTIME
 # A canonical-project-path fingerprint prevents state/history/long-term-memory
 # from leaking when PROJECT_DIR changes under the same Compose project name.
 CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --field key)
@@ -60,7 +63,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: opencode opencode-mcp opencode-serve test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: agent opencode opencode-mcp opencode-serve test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -91,8 +94,9 @@ help:
 	  'make remove-agent   Remove only the agent container' \
 	  'make recreate-agent Recreate only the agent container' \
 	  'make login          Authenticate Codex using device flow' \
-	  'make codex          Open interactive Codex CLI' \
-	  'make opencode       Open OpenCode V2 (optional Agent Tool)' \
+	  'make agent          Open agent selected by AGENT_RUNTIME in .env' \
+	  'make codex          Legacy: open Codex CLI directly' \
+	  'make opencode       Legacy: open OpenCode CLI directly' \
 	  'make opencode-mcp   Inspect OpenCode MCP connections' \
 	  'make opencode-serve Start OpenCode API on container loopback' \
 	  'make shell          Open a shell inside the agent' \
@@ -328,6 +332,11 @@ network-static:
 
 login:
 	$(COMPOSE) exec agent codex login --device-auth
+
+# The default entrypoint dispatches to a trusted registered CLI without
+# interpreting the environment-selected runtime as a shell command.
+agent:
+	@python3 scripts/agent.py
 
 codex:
 	$(COMPOSE) exec agent codex
