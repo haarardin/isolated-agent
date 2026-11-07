@@ -31,6 +31,8 @@ PODMAN ?= podman
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
+# Dev-only four-repo Bridge profile. Preserves the ordinary project commands.
+COMPOSE_BRIDGE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f compose.bridge-dev.yaml -f .generated/compose.tools.yaml
 COMPOSE_OFFLINE ?= $(COMPOSE) -f compose.yaml -f .generated/compose.tools.yaml
 COMPOSE_TOOLS ?= $(COMPOSE_WEB)
 COMPOSE_OFFLINE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
@@ -60,7 +62,7 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: bridge-up bridge-down bridge-ps bridge-logs test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
@@ -86,6 +88,8 @@ help:
 	  'make network-ensure Create or reuse the project's internal network' \
 	  'make migrate-network CONFIRM=YES   Migrate old network' \
 	  'make up-example     Start agent + PostgreSQL + Redis' \
+	  'make bridge-up      Start optional Bridge dev agent, DB, UI ports and mock' \
+	  'make bridge-ps      Inspect Bridge dev services' \
 	  'make ps-example     Show agent + example services' \
 	  'make stop-agent     Stop only the agent container' \
 	  'make remove-agent   Remove only the agent container' \
@@ -257,6 +261,21 @@ up: prepare-web
 up-example: prepare-web
 	@bash scripts/check-agent-state.sh
 	$(COMPOSE_EXAMPLE) up -d
+
+# Requires a prepared four-repository PROJECT_DIR and the opt-in dependency
+# profile. No host container-runtime sockets or privileged agent containers.
+bridge-up: prepare-web
+	@bash scripts/check-agent-state.sh
+	$(COMPOSE_BRIDGE) up -d --build
+
+bridge-down: deps-generate
+	$(COMPOSE_BRIDGE) down
+
+bridge-ps: deps-generate
+	$(COMPOSE_BRIDGE) ps
+
+bridge-logs: deps-generate
+	$(COMPOSE_BRIDGE) logs -f
 
 offline: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/check-agent-state.sh

@@ -4,6 +4,16 @@ Reusable rootless-Podman development sandbox for local AI coding agents such as 
 
 The goal is to give an agent enough freedom to edit code, use project services, and run unit/integration tests while exposing only the project workspace and explicitly declared Compose resources.
 
+## Optional Agentic Bridge four-repository development
+
+To run Codex against `agentic-bridge-cli`, `agentic-bridge-architecture`,
+`agentic-bridge-server` and `agentic-bridge-ui` in one mounted workspace
+with Go/Node/Serena/Playwright, rootless Podman, PostgreSQL and an internal
+mock agent, follow [the step-by-step Bridge development guide](docs/bridge-development.md).
+Use `make bridge-up` only after selecting the opt-in dependency profile.
+Normal `make up` behavior is unchanged. The mock is a fixture, not yet
+wired to the incomplete production Bridge CLI/Server.
+
 ## Architecture
 
 ```text
