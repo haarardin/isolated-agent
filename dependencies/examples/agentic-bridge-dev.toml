@@ -16,7 +16,7 @@ verify = ["go version"]
 id = "node-sdk"
 type = "script"
 file = "install-node.sh"
-args = ["24.11.1"]
+args = ["24.22.2"]
 verify = ["node --version", "npm --version"]
 
 [[install]]
