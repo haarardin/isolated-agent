@@ -1,0 +1,28 @@
+# Optional development overlay; no host Podman/Docker socket is mounted.
+# The bind IP must exist on the Debian host. Not suitable for public Internet.
+services:
+  agent:
+    environment:
+      NO_PROXY: localhost,127.0.0.1,::1,postgres,redis,mock-agent,${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-mock-agent
+      no_proxy: localhost,127.0.0.1,::1,postgres,redis,mock-agent,${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-mock-agent
+    ports:
+      - "${BRIDGE_BIND_IP:-127.0.0.1}:${BRIDGE_UI_PORT:-5173}:5173"
+      - "${BRIDGE_BIND_IP:-127.0.0.1}:${BRIDGE_SERVER_PORT:-8080}:8080"
+
+  mock-agent:
+    image: localhost/isolated-agent-bridge-mock:dev
+    build:
+      context: .
+      dockerfile: tests/mock-agent/Containerfile
+    command: ["python3", "/opt/mock/mock_agent.py"]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=16m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      isolated-dev:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-isolated-agent-demo}-mock-agent
+    # No published host port. Internal network only.

@@ -1,0 +1,7 @@
+FROM docker.io/library/python:3.13-alpine
+RUN addgroup -S mock && adduser -S -G mock mock
+WORKDIR /opt/mock
+COPY tests/mock-agent/mock_agent.py /opt/mock/mock_agent.py
+USER mock
+EXPOSE 8090
+CMD ["python3", "/opt/mock/mock_agent.py"]
