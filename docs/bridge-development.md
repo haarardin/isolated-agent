@@ -57,20 +57,18 @@ cd "$HOME/dev/isolated-agent"
 cp .env.example .env
 cp dependencies/examples/agentic-bridge-dev.toml dependencies/dependencies.toml
 
-# Append overrides. PROJECT_DIR must be absolute and existing:
-cat >>.env <<EOF
-COMPOSE_PROJECT_NAME=agentic-bridge-dev
-PROJECT_DIR=$HOME/dev/agentic-bridge-workspace
+# Change the existing values; do not append duplicate keys:
+sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=agentic-bridge-dev/' .env
+sed -i "s|^PROJECT_DIR=.*|PROJECT_DIR=$HOME/dev/agentic-bridge-workspace|" .env
+cat >>.env <<'EOF'
 BRIDGE_BIND_IP=192.168.88.240
 BRIDGE_UI_PORT=5173
 BRIDGE_SERVER_PORT=8080
 EOF
 ```
 
-If .env.example already declares COMPOSE_PROJECT_NAME or PROJECT_DIR,
-edit those lines IN PLACE instead of appending duplicates (Make reads both
-through includes and the duplicate last assignment wins; minimize confusion).
-Use `BRIDGE_BIND_IP=127.0.0.1` when LAN exposure is not needed.
+The example already declares COMPOSE_PROJECT_NAME and PROJECT_DIR; the
+commands above replace rather than duplicate them. Use `BRIDGE_BIND_IP=127.0.0.1` when LAN exposure is not needed.
 If the host uses SELinux, check bind-mount labeling separately; do not
 disable SELinux or broaden mounts without review.
 
@@ -87,7 +85,7 @@ make doctor
 make network-check
 ```
 
-The opt-in build adds Go 1.27.3, Node 24.11.1/npm, Python venv, gopls,
+The opt-in build adds Go 1.27.3, Node 24.22.2/npm, Python venv, gopls,
 TypeScript LSP, Serena 1.7.0 (one MCP registration per checkout),
 Playwright MCP 0.0.84 with bundled headless Chromium, PostgreSQL 18 and
 Redis 8. Browser downloads can be large. Image builds fetch remote packages
