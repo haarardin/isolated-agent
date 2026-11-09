@@ -1,148 +1,179 @@
-# OpenCode V2 alongside Codex (initial integration)
+# Coding agents: Codex and OpenCode V2
 
-The existing Codex CLI remains the default and works unchanged. Selection
-is controlled by `AGENT_RUNTIME` in `.env`, with `make agent` as the shared
-entrypoint. Registered runtimes live in `config/agent-runtimes.json`. OpenCode V2
-is an optional **embedded Agent Tool** running in the **same rootless Podman
-agent** with the same /workspace and installed MCP toolchain.
+Both coding runtimes are **optional, independently installed** in the same
+rootless Podman environment. The `[[agents]]` entries in
+`dependencies/dependencies.toml` decide **what is installed**. The
+`AGENT_RUNTIME` setting in the checkout's gitignored `.env` decides
+**which installed CLI `make agent` launches**.
 
-For a step-by-step verification on Debian 13 rootless Podman, use
-**[the ProxyAPI smoke-test runbook](opencode-smoke-test.md)** first.
+The default remains **Codex enabled / OpenCode disabled** for backwards
+compatibility. This PR does not implicitly remove existing Codex
+authentication, sessions, or project data.
 
-## Enable
+## Architecture and installation
 
-In `dependencies/dependencies.toml`, change `enabled = false` to `true`
-**only** for `id = "opencode"`. Set `AGENT_RUNTIME=opencode` in `.env`.
-Keep provider/model settings OUTSIDE the source workspace: they belong to
-this `isolated-agent` checkout, not the Go/CAD/etc project.
+```text
+Debian 13 Base (no Node.js/npm, no coding CLI)
+  └── Dependencies image
+        ├── enabled [[agents]]          Codex and/or OpenCode CLI
+        ├── [[install]]                 Go/Python/other project SDKs
+        └── [[agent_tools]]             MCP, LSP and other tools
+      └── Project image                generated MCP + runtime defaults
+          └── agent container          /workspace + only enabled agent states
+```
+
+The **normal** `make build` path is Base → Dependencies → Project;
+`images/codex/Containerfile` and `make build-codex` remain only as legacy
+manual tooling, not as a required image dependency.
+
+`[[agents]]` schema:
+
+```toml
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
+[[agents]]
+id = "opencode"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-opencode.sh"
+args = ["2.0.0"]
+verify = ["opencode --version"]
+
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
+```
+
+- `install-codex.sh` installs the **complete** official Codex standalone
+  runtime, including the managed Remote Control app-server components.
+- `install-opencode.sh` downloads **only the native V2 CLI** using
+  `https://opencode.ai/v2/install` with a pinned version and
+  `--no-modify-path`. **Node.js and npm are not installed for OpenCode.**
+  They can be installed independently under `[apt].packages`/`[[install]]`
+  or an MCP's `[[agent_tools.install]]` if a tool or application needs them.
+- `agents.state` controls per-project persistent OpenCode state. For Codex,
+  the existing host `CODEX_STATE_VOLUME` and legacy named-volume migration
+  flags still override the directory selection to preserve prior state.
+- `[[agent_tools]]` remains **only** for MCP/supporting tools (for example
+  Serena). Do not put coding runtimes there. The generic tool `kind = "cli"`
+  remains supported for non-agent helper executables.
+- Do not set `AGENT_RUNTIME` to a disabled CLI. `make agent` fails before
+  launching Compose. Changing which agents are **installed** requires
+  `make build` and container recreation. Simply switching
+  `AGENT_RUNTIME` between two already-installed agents requires neither.
+
+Examples: Codex only (default): `codex=true`, `opencode=false`;
+OpenCode only: `codex=false`, `opencode=true`;
+both: `codex=true`, `opencode=true`.
+
+## Provider configuration outside /workspace
+
+OpenCode provider/model settings do **not** belong in `PROJECT_DIR`.
+From the `isolated-agent` checkout:
 
 ```bash
 umask 077
-test -e config/opencode.jsonc || cp config/opencode.example.jsonc config/opencode.jsonc
-# edit config/opencode.jsonc to select your models / provider
+test -f config/opencode.jsonc || cp config/opencode.example.jsonc config/opencode.jsonc
 ```
 
-`config/opencode.jsonc` is gitignored and is mounted read-only at
-`/opt/isolated-agent/opencode-user.jsonc` inside the container. The launcher
-sets `OPENCODE_CONFIG` to that path. **The file is not baked into any image
-or copied into the workspace.** Codex does not load it as its own config,
-but both CLIs share the same container user, so this file is not a secrecy
-boundary between Codex and OpenCode.
-Neither the optional CLI nor this config requires a project-level
-`PROJECT_DIR/opencode.jsonc`; do not create one. The project itself can
-still supply a higher-precedence project config, so inspect that if behavior
-seems overridden.
+The local `config/opencode.jsonc` is gitignored and **read-only** mounted
+inside the container at `/opt/isolated-agent/opencode-user.jsonc`; the
+OpenCode wrapper sets `OPENCODE_CONFIG` to that path. The immutable
+`/etc/opencode/opencode.json` provides the centrally generated MCP
+configuration. OpenCode merges configuration sources. Project-level
+`opencode.json(c)` can override settings, so inspect those if model/MCP
+behavior differs from expectations.
 
-This selects the OpenCode CLI when running `make agent`. This installs pinned
-`@opencode/cli@2.0.0` via npm in the Dependencies image. It does NOT remove
-Codex or convert its auth. An image rebuild/recreate is necessary:
+The default example defines `proxyapi` with
+`https://api.proxyapi.ru/v1` and an **illustrative** model ID
+`qwen/qwen3.8-flash`. Verify that the model and tool calling are available
+in your ProxyAPI account. A multi-model example is in
+`config/opencode.proxyapi-multi.example.jsonc`.
+
+Do **not** store a ProxyAPI key in a JSON file, `.env`, image build args or
+Git. Enter the existing key using OpenCode TUI `/connect` → custom/Other →
+`proxyapi`, then select the configured model via `/models`. Credentials
+and sessions are stored under the per-project
+`./volumes/opencode/<project-key>` bind.
+
+Changing only `config/opencode.jsonc` requires restarting OpenCode, **not**
+rebuilding images. A local project config can override it. The same
+container user can access both CLIs when both are enabled; the separate
+config file is not a cross-agent secrecy boundary.
+
+## Launch
+
+After editing the manifest (OpenCode enabled), `.env`, and creating the
+local provider config:
 
 ```bash
 make deps-validate
 make deps-plan
 make build
-make up
-make agent
-make opencode-mcp
+make recreate-agent  # stop old sessions first; updates image and mounts
+make up              # start/confirm Squid filtered egress
+make doctor
+make agent           # dispatches selected AGENT_RUNTIME
 ```
 
-The checked-in minimal example `config/opencode.example.jsonc` uses
-**ProxyAPI** as an OpenAI-compatible custom provider. A separate optional
-`config/opencode.proxyapi-multi.example.jsonc` adds illustrative OpenAI,
-Anthropic, Google, and Qwen model IDs through the same ProxyAPI key and
-OpenAI-compatible endpoint. Those model IDs and the tool-calling compatibility
-must be confirmed with your ProxyAPI subscription; the multi-model example is
-not a guarantee that every model supports that endpoint. A Go+Serena
-dependency manifest is available at
-`dependencies/examples/go-opencode-serena.toml`. Merge its entries into a
-customized `dependencies.toml` rather than overwriting other tools.
-After `make agent`, use `/connect` → `Other` → `proxyapi` to enter the
-existing ProxyAPI key, then `/models` to select the model. The example also
-allows `PROXYAPI_API_KEY` as an optional environment variable, but does not
-put any secret in the JSON file. Avoid storing keys in `.env`, image build
-args or the checked-in example. ChatGPT/Codex credentials are not reusable
-implicitly.
+`make login` and Codex Remote Control only apply to **installed Codex**;
+`make opencode`, `make opencode-mcp` and `make opencode-serve` only apply
+to **installed OpenCode**. Direct commands remain available for
+compatibility; `make agent` is the default entry point.
 
-To change provider/model configuration, edit the local file and start a
-**new OpenCode process** (`make agent`); no image rebuild or Compose
-recreation is required. Switching between projects reuses the local config
-while each project's OpenCode state remains independently scoped.
-
-Changing `AGENT_RUNTIME` only changes which existing CLI is launched.
-It does not install an agent. To add a new runtime later, install its CLI
-via the dependencies mechanism and add its executable argv to
-`config/agent-runtimes.json`. Unknown runtime names fail before Podman is
-invoked. The existing `make codex` and `make opencode` commands are retained
-as direct-launch compatibility aliases.
-
-For headless execution after authentication:
+Headless read-only model test:
 
 ```bash
 bash scripts/compose.sh exec agent \
-  /usr/local/bin/isolated-agent-opencode run "Explain this Go repository"
+  /usr/local/bin/isolated-agent-opencode run --model proxyapi/qwen-flash \
+  "Привет. Ответь одним предложением."
 ```
 
-For a **foreground API** on the container's loopback, with no published host
-port:
+## Serena MCP / Go
 
-```bash
-make opencode-serve
-```
+MCP entries remain in `[[agent_tools]]`, not `[[agents]]`. The generated
+`.generated/codex-mcp.toml` and `.generated/opencode-mcp.json` read the
+same enabled MCP entries. Use the reference manifest
+`dependencies/examples/go-opencode-serena.toml` to install Go, Serena and
+gopls. Merge the pieces into your own `dependencies.toml` and rebuild.
 
-This initial PR does not implement Go Agentic Bridge HTTP/SSE/API access,
-remote approvals, or a long-lived service supervisor. API security and
-session/event mapping are separate follow-ups.
+The current Serena example uses `--context=codex` even when paired with
+OpenCode; verify the MCP handshake, tools and LSP with real Go sources.
+OpenCode does not require Serena to run. Node/npm are independent tools:
+an npm-based MCP server may still need them if explicitly configured.
 
-## Isolation / persistence
+## Verification and cautions
 
-- An opt-in, project-scoped state bind is generated automatically:
-  `./volumes/opencode/<project-key>:/root/.isolated-opencode:rw`. The key
-  is based on `COMPOSE_PROJECT_NAME` and canonical `PROJECT_DIR`.
-- The `isolated-agent-opencode` wrapper redirects XDG config/data/state
-  to the above mount. Its cache uses existing `/root/.cache`.
-- The only extra agent bind for the provider configuration is the single
-  read-only `config/opencode.jsonc` file from the isolated-agent checkout.
-  `make up`/state-preparation fail with a helpful message if this file is
-  missing or a symlink. It is deliberately not a bind to the repository
-  directory. Credentials entered via `/connect` go into persistent XDG
-  state, not the config example.
-- `.generated/opencode-mcp.json` is generated from the **same** enabled
-  `agent_tools` MCP entries as Codex and copied to the V2 system path
-  `/etc/opencode/opencode.json`. V2 requires `mcp.servers`; V1's
-  `mcp.<name>` layout is intentionally not supported.
-- Local stdio MCP servers remain processes inside the agent. Sidecar HTTP
-  uses the existing internal DNS alias; external MCP requires HTTPS.
-- Current rootless Podman containment, limited /workspace, read-only rootfs,
-  dropped capabilities, Squid egress isolation and no host Podman/Docker
-  socket remain intact.
+Follow **[OpenCode + ProxyAPI smoke test](opencode-smoke-test.md)** for
+precise instructions and expected outcomes. Important checks:
 
-Serena's current `--context=codex` declaration is reused verbatim.
-Verify its tool availability and behavior with OpenCode before depending on
-it. OpenCode models and authentication are independent of Codex.
+- `make doctor` checks installed runtimes and container isolation.
+- `make opencode-mcp` checks optional MCP connectivity.
+- `make network-check` verifies rootless network boundary (not ProxyAPI
+  API availability).
+- After `make recreate-agent`, `opencode auth list` must still show
+  the connected provider and session continuation should work.
 
-## Verify
+Codex Remote Control and Go Agentic Bridge integrations are Codex-specific
+or future work. This PR does not add a Go Agentic Bridge adapter for OpenCode
+nor publish OpenCode API ports. Do not merge solely because static CI passes:
+a real rootless Podman and ProxyAPI smoke test is required.
 
-Run the full [smoke-test runbook](opencode-smoke-test.md). It includes
-expected output and troubleshooting for the isolated external config, image
-rebuild, selected runtime, ProxyAPI credentials, a real model request, MCP,
-session persistence and `make network-check`.
-
-For a quick static preflight (no Podman needed):
-
-```bash
-python3 -m unittest discover -s tests -p 'test_agent_dispatch.py' -v
-python3 -m unittest discover -s tests -p 'test_dependencies.py' -v
-bash scripts/test-security-static.sh
-make deps-generate
-make deps-validate
-```
-
-Static tests cannot validate a real provider response, runtime networking or
-Serena's MCP handshake. Those require the manual Podman smoke test.
-
-References:
+Official sources:
 - https://opencode.ai/v2/docs
-- https://opencode.ai/v2/docs/mcp-servers
-- https://opencode.ai/v2/docs/cli
-- https://opencode.ai/v2/docs/cli/web/
-- https://opencode.ai/v2/docs/api
+- https://opencode.ai/v2/install
+- https://opencode.ai/docs/providers
+- https://opencode.ai/docs/mcp-servers
