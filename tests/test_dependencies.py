@@ -16,8 +16,12 @@ SPEC.loader.exec_module(deps)
 
 
 class DependencyTests(unittest.TestCase):
-    def test_default_has_no_language_sdk(self):
+    def test_codex_only_has_no_language_sdk(self):
+        # Tests must declare their own agents instead of assuming the user's
+        # local dependencies.toml always enables Codex by default.
         cfg = deps.parse()
+        next(a for a in cfg["agents"] if a["id"] == "codex")["enabled"] = True
+        next(a for a in cfg["agents"] if a["id"] == "opencode")["enabled"] = False
         self.assertEqual(cfg["apt"]["packages"], [])
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
@@ -255,14 +259,17 @@ url="http://unsafe.example/mcp"
     def test_disabled_tools_still_validated(self):
         deps.parse(ROOT / "dependencies/examples/mcp-http.toml")
 
-    def test_optional_opencode_cli_and_scoped_state(self):
+    def test_both_agents_and_scoped_opencode_state(self):
         cfg = deps.parse()
+        # Explicitly enable both to exercise simultaneous installations,
+        # irrespective of whether the local test host is OpenCode-only.
+        for agent in cfg["agents"]:
+            if agent["id"] in ("codex", "opencode"):
+                agent["enabled"] = True
         self.assertEqual([x["id"] for x in deps.enabled(cfg)], [])
-        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["codex"])
+        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["codex", "opencode"])
         agent = next(x for x in cfg["agents"] if x["id"] == "opencode")
-        self.assertFalse(agent["enabled"])
         self.assertEqual(agent["state"]["target"], "/root/.isolated-opencode")
-        agent["enabled"] = True
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
             out = Path(td)
             deps.generate(cfg, out)
