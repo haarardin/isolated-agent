@@ -88,42 +88,14 @@ class Lifecycle:
         items = []
         for item in ids:
             details = self.inspect(item)
-            if label(details, PROJECT_LABELS) == self.project:
-                # Ignore unrelated containers even if their names look similar.
+            if (label(details, PROJECT_LABELS) == self.project and
+                    label(details, SERVICE_LABELS)):
+                # Operate only on Compose-managed services for this project.
+                # Do not gate lifecycle on workspace or agent state mounts:
+                # those are validated when containers are created/recreated.
                 identifier(details)
                 items.append(details)
         return items
-
-    def validate_agent(self, container: dict) -> None:
-        if label(container, SERVICE_LABELS) != "agent":
-            return
-        expected_workspace = os.environ.get("PROJECT_DIR")
-        expected_codex_type = os.environ.get("CODEX_STATE_MOUNT_TYPE")
-        expected_codex_source = os.environ.get("CODEX_STATE_MOUNT_SOURCE")
-        expected_codex_named = os.environ.get("CODEX_NAMED_VOLUME")
-        if not expected_workspace or not expected_codex_type:
-            fail("PROJECT_DIR or CODEX_STATE_MOUNT_TYPE missing; use make start/stop")
-        mounts = {m.get("Destination"): m for m in (container.get("Mounts") or [])}
-        workspace = mounts.get("/workspace") or {}
-        codex = mounts.get("/root/.codex") or {}
-        same_workspace = (
-            workspace.get("Type", "").lower() == "bind" and
-            os.path.realpath(workspace.get("Source") or "") == os.path.realpath(expected_workspace)
-        )
-        if expected_codex_type == "bind":
-            same_codex = (
-                codex.get("Type", "").lower() == "bind" and
-                os.path.realpath(codex.get("Source") or "") == os.path.realpath(expected_codex_source or "")
-            )
-        elif expected_codex_type == "volume":
-            same_codex = (
-                codex.get("Type", "").lower() == "volume" and
-                codex.get("Name") == expected_codex_named
-            )
-        else:
-            fail("unexpected CODEX_STATE_MOUNT_TYPE")
-        if not (same_workspace and same_codex):
-            fail("existing agent belongs to another workspace/Codex state; refusing lifecycle operation")
 
     def save(self, rows: list[dict]) -> None:
         self.state_root.mkdir(parents=True, exist_ok=True)
@@ -165,8 +137,6 @@ class Lifecycle:
 
     def stop(self) -> None:
         containers = self.project_containers()
-        for item in containers:
-            self.validate_agent(item)  # validate before stopping any container
         selected = []
         for item in containers:
             st = status(item)
@@ -200,7 +170,6 @@ class Lifecycle:
                 fail("saved container ID was replaced or moved to another project: " + row["id"])
             if (label(item, SERVICE_LABELS) or "") != row["service"]:
                 fail("saved container service label changed: " + row["id"])
-            self.validate_agent(item)
             st = status(item)
             if st not in ("running", "paused", "exited", "stopped", "created", "configured"):
                 fail(f"cannot start container {row['id']}: unexpected status {st}")
