@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import shutil
 import os
 from pathlib import Path
 import subprocess
@@ -83,6 +85,115 @@ class AgentDispatchTests(unittest.TestCase):
                     with mock.patch.object(agent, "ROOT", root):
                         self.assertEqual(agent.enabled_runtime("codex"), codex_enabled)
                         self.assertEqual(agent.enabled_runtime("opencode"), opencode_enabled)
+
+    def test_make_agent_positional_runtime_override_without_podman(self):
+        # Exercise the actual Makefile from a disposable copy to avoid
+        # depending on the developer's local enabled agents or .env file.
+        with tempfile.TemporaryDirectory() as td:
+            checkout = Path(td)
+            for source in ("Makefile", "scripts/agent.py",
+                           "scripts/project-state.py", "scripts/compose.sh"):
+                dest = checkout / source
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / source, dest)
+            (checkout / "config").mkdir()
+            (checkout / "dependencies").mkdir()
+            (checkout / "workspace").mkdir()
+            (checkout / ".env").write_text(
+                "AGENT_RUNTIME=opencode\\n"
+                "COMPOSE_PROJECT_NAME=positional-agent-test\\n"
+                "PROJECT_DIR=./workspace\\n"
+            )
+            (checkout / "config/agent-runtimes.json").write_text(
+                json.dumps({
+                    "codex": ["codex"],
+                    "opencode": ["/usr/local/bin/isolated-agent-opencode"],
+                    # Future runtime: no new Makefile alias or recipe.
+                    "future-agent": ["future-cli", "--safe"],
+                })
+            )
+            manifest = checkout / "dependencies/dependencies.toml"
+            manifest.write_text(
+                '[[agents]]\\nid="codex"\\nenabled=true\\n'
+                '[[agents]]\\nid="opencode"\\nenabled=true\\n'
+                '[[agents]]\\nid="future-agent"\\nenabled=true\\n'
+            )
+            fake_bin = checkout / "fake-bin"
+            fake_bin.mkdir()
+            fake_compose = fake_bin / "podman-compose"
+            fake_compose.write_text('#!/bin/sh\\nprintf "%s\\n" "$@"\\n')
+            fake_compose.chmod(0o755)
+            env = {**os.environ,
+                   "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", "")}
+            for key in ("MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"):
+                env.pop(key, None)
+
+            def invoke(*goals):
+                return subprocess.run(
+                    ["make", "--no-print-directory", *goals],
+                    cwd=checkout, env=env, capture_output=True,
+                    text=True, check=False,
+                )
+
+            # No positional argument retains the .env default.
+            default = invoke("agent")
+            self.assertEqual(default.returncode, 0, default.stderr)
+            self.assertEqual(default.stdout.splitlines(),
+                             ["exec", "agent", "/usr/local/bin/isolated-agent-opencode"])
+
+            # Explicit goal wins over both .env and command-line AGENT_RUNTIME;
+            # it must not trigger the old direct "codex"/"opencode" target too.
+            overrides = (
+                ("codex", "opencode", ["exec", "agent", "codex"]),
+                ("opencode", "codex",
+                 ["exec", "agent", "/usr/local/bin/isolated-agent-opencode"]),
+            )
+            for runtime, env_runtime, expected in overrides:
+                with self.subTest(runtime=runtime):
+                    result = invoke("agent", runtime, "AGENT_RUNTIME=" + env_runtime)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), expected)
+
+            future = invoke("agent", "future-agent")
+            self.assertEqual(future.returncode, 0, future.stderr)
+            self.assertEqual(future.stdout.splitlines(),
+                             ["exec", "agent", "future-cli", "--safe"])
+
+            # Reject typos, non-agent make targets, multiple runtime goals,
+            # and injection attempts before invoking the Compose wrapper.
+            for goals in (
+                ("agent", "unknown"),
+                ("agent", "build"),
+                ("agent", "codex", "opencode"),
+                ("agent", "codex;touch-danger"),
+            ):
+                with self.subTest(reject=goals):
+                    result = invoke(*goals)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn("Makefile:", result.stderr)
+
+            # Registered but disabled runtimes must still fail closed.
+            manifest.write_text(
+                '[[agents]]\\nid="codex"\\nenabled=false\\n'
+                '[[agents]]\\nid="opencode"\\nenabled=true\\n'
+                '[[agents]]\\nid="future-agent"\\nenabled=true\\n'
+            )
+            disabled = invoke("agent", "codex")
+            self.assertNotEqual(disabled.returncode, 0)
+            self.assertIn("disabled in [[agents]]", disabled.stderr)
+            self.assertNotIn("exec", disabled.stdout)
+
+            # Legacy direct aliases still have their old recipes when they
+            # are invoked without the "agent" prefix.
+            for name in ("codex", "opencode"):
+                direct = subprocess.run(
+                    ["make", "--no-print-directory", "-n", name],
+                    cwd=checkout, env=env, capture_output=True,
+                    text=True, check=False,
+                )
+                self.assertEqual(direct.returncode, 0, direct.stderr)
+                self.assertIn("require-agent --name " + name, direct.stdout)
 
     def test_make_agent_dispatches_each_runtime_without_podman(self):
         with tempfile.TemporaryDirectory() as td:
