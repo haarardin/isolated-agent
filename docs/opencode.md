@@ -63,9 +63,9 @@ target = "/root/.isolated-opencode"
   a version argument**. It selects the latest available upstream release
   when that build step actually runs. **Node.js and npm are not installed
   for OpenCode.** The `verify = ["opencode --version"]` step only checks
-  that the CLI starts; it never compares version numbers.
-  They can be installed independently under `[apt].packages`/`[[install]]`
-  or an MCP's `[[agent_tools.install]]` if a tool or application needs them.
+  that the CLI starts; it never compares version numbers. Install Node.js/npm
+  separately under `[apt].packages`/`[[install]]` or an MCP's
+  `[[agent_tools.install]]` only if a project/tool needs them.
 - `agents.state` controls per-project persistent OpenCode state. For Codex,
   the existing host `CODEX_STATE_VOLUME` and legacy named-volume migration
   flags still override the directory selection to preserve prior state.
@@ -173,10 +173,15 @@ same enabled MCP entries. Use the reference manifest
 `dependencies/examples/go-opencode-serena.toml` to install Go, Serena and
 gopls. Merge the pieces into your own `dependencies.toml` and rebuild.
 
-The current Serena example uses `--context=codex` even when paired with
-OpenCode; verify the MCP handshake, tools and LSP with real Go sources.
-OpenCode does not require Serena to run. Node/npm are independent tools:
-an npm-based MCP server may still need them if explicitly configured.
+Serena is a **single shared `[[agent_tools]]` installation**, not one copy
+per agent. Generated registrations let both enabled coding clients use it.
+With stdio transport, each active client spawns its own Serena MCP process
+from the installed executable. The example currently uses
+`--context=codex` for both clients; that context may influence available
+tools. Verify real Serena tool calls against the workspace; test Go symbols
+only after installing the Go SDK and `gopls`. OpenCode does not require
+Serena to run. Node/npm remain independent dependencies for Node-based
+MCP servers and projects.
 
 ## Verification and cautions
 
@@ -192,6 +197,11 @@ precise instructions and expected outcomes. Important checks:
   API availability).
 - After `make recreate-agent`, `opencode auth list` must still show
   the connected provider and session continuation should work.
+- `make stop` / `make start` stop and resume existing Compose project
+  containers by their project/service labels, without inspecting agent
+  workspace or state mounts. They preserve existing container IDs and
+  the stopped-container checkpoint; they do not rebuild images or reconcile
+  new agent/tool configuration.
 
 Codex Remote Control and Go Agentic Bridge integrations are Codex-specific
 or future work. This PR does not add a Go Agentic Bridge adapter for OpenCode
