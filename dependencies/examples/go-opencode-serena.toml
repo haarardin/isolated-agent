@@ -33,12 +33,9 @@ id = "opencode"
 enabled = true
 
 [[agents.install]]
-type = "apt"
-packages = ["nodejs", "npm"]
-
-[[agents.install]]
-type = "command"
-run = "npm install --global --no-audit --no-fund @opencode/cli@2.0.0"
+type = "script"
+file = "install-opencode.sh"
+args = ["2.0.0"]
 verify = ["opencode --version"]
 
 [agents.state]
