@@ -45,7 +45,8 @@ class AgentDispatchTests(unittest.TestCase):
         ):
             with self.subTest(runtime=runtime), \
                  mock.patch.dict(agent.os.environ, {"AGENT_RUNTIME": runtime}, clear=True), \
-                 mock.patch.object(agent.os, "execvp") as execute:
+                 mock.patch.object(agent.os, "execvp") as execute, \
+                 mock.patch.object(agent, "enabled_runtime", return_value=True):
                 self.assertEqual(agent.main(["run", "message;touch /tmp/unsafe"]), 0)
                 execute.assert_called_once_with(
                     "bash",
@@ -55,9 +56,14 @@ class AgentDispatchTests(unittest.TestCase):
 
     def test_invalid_selection_does_not_call_compose(self):
         with mock.patch.dict(agent.os.environ, {"AGENT_RUNTIME": "bad value"}, clear=True), \
-             mock.patch.object(agent.os, "execvp") as execute:
+             mock.patch.object(agent.os, "execvp") as execute, \
+                 mock.patch.object(agent, "enabled_runtime", return_value=True):
             self.assertEqual(agent.main(), 2)
             execute.assert_not_called()
+
+    def test_manifest_enabled_runtime_matches_default(self):
+        self.assertTrue(agent.enabled_runtime("codex"))
+        self.assertFalse(agent.enabled_runtime("opencode"))
 
     def test_make_agent_dispatches_each_runtime_without_podman(self):
         with tempfile.TemporaryDirectory() as td:
@@ -68,16 +74,22 @@ class AgentDispatchTests(unittest.TestCase):
                    "PATH": td + os.pathsep + os.environ.get("PATH", ""),
                    "COMPOSE_PROJECT_NAME": "agent-dispatch-test",
                    "AGENT_NETWORK_NAME": "agent-dispatch-test_net"}
-            for runtime, cmd in (("codex", "codex"),
-                                 ("opencode", "/usr/local/bin/isolated-agent-opencode")):
-                with self.subTest(runtime=runtime):
-                    run = subprocess.run(
-                        ["make", "--no-print-directory", "agent",
-                         "AGENT_RUNTIME=" + runtime],
-                        cwd=ROOT, env=env, capture_output=True, text=True, check=False,
-                    )
-                    self.assertEqual(run.returncode, 0, run.stderr)
-                    self.assertEqual(run.stdout.splitlines(), ["exec", "agent", cmd])
+            run = subprocess.run(
+                ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=codex"],
+                cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(run.stdout.splitlines(), ["exec", "agent", "codex"])
+
+            # The default manifest intentionally disables OpenCode. No old
+            # binary can be started until the agent is enabled in [[agents]].
+            disabled = subprocess.run(
+                ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=opencode"],
+                cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(disabled.returncode, 0)
+            self.assertIn("disabled in [[agents]]", disabled.stderr)
+            self.assertNotIn("exec", disabled.stdout)
 
             bad = subprocess.run(
                 ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=codex;id"],
