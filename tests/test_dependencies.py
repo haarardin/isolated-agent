@@ -254,9 +254,48 @@ url="http://unsafe.example/mcp"
             self.assertIn("@opencode/cli@2.0.0", (out / "Containerfile.dependencies").read_text())
             compose = (out / "compose.tools.yaml").read_text()
             self.assertIn("/root/.isolated-opencode:rw", compose)
+            readonly = str(ROOT / "config" / "opencode.jsonc") + ":/opt/isolated-agent/opencode-user.jsonc:ro"
+            self.assertIn(readonly, compose)
+            self.assertNotIn("opencode-user.jsonc:rw", compose)
             self.assertNotIn("privileged:", compose)
             self.assertNotIn("podman.sock", compose)
             self.assertNotIn("docker.sock", compose)
+
+    def test_opencode_config_preflight_missing_symlink_and_valid(self):
+        cfg = deps.parse()
+        next(x for x in cfg["agent_tools"] if x["id"] == "opencode")["enabled"] = True
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            local = config_dir / "opencode.jsonc"
+            with mock.patch.object(deps, "ROOT", root), \
+                 mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
+                with self.assertRaisesRegex(ValueError, "config/opencode.example.jsonc"):
+                    deps.prepare_tool_state(cfg)
+                local.symlink_to("/etc/passwd")
+                with self.assertRaisesRegex(ValueError, "config/opencode.example.jsonc"):
+                    deps.prepare_tool_state(cfg)
+                local.unlink()
+                local.write_text('{"model": "proxyapi/qwen-flash"}')
+                deps.prepare_tool_state(cfg)
+                path = deps.state_dir(cfg["agent_tools"][0], "test-project")
+                self.assertTrue(path.is_dir())
+                # Local config remains on the host, outside generated state.
+                self.assertFalse((path / "opencode.jsonc").exists())
+
+    def test_opencode_config_is_not_baked_or_in_workspace(self):
+        example = ROOT / "config" / "opencode.example.jsonc"
+        data = json.loads(example.read_text())
+        self.assertEqual(data["providers"]["proxyapi"]["settings"]["baseURL"],
+                         "https://api.proxyapi.ru/v1")
+        self.assertNotIn("apiKey", example.read_text())
+        wrapper = (ROOT / "scripts/opencode.sh").read_text()
+        self.assertIn('export OPENCODE_CONFIG="$config"', wrapper)
+        self.assertIn("/opt/isolated-agent/opencode-user.jsonc", wrapper)
+        image = (ROOT / "images/project/Containerfile").read_text()
+        self.assertNotIn("config/opencode.jsonc", image)
+        self.assertIn("/config/opencode.jsonc", (ROOT / ".gitignore").read_text())
 
     def test_generation_is_deterministic(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
