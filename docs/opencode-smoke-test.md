@@ -84,12 +84,11 @@ Check the binary, mount and runtime settings:
 
 ```bash
 bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode --version
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode models proxyapi
 bash scripts/compose.sh exec agent sh -c 'test -r /opt/isolated-agent/opencode-user.jsonc && test -d /root/.isolated-opencode'
 ```
 
-Expected: V2 version, a model alias such as `proxyapi/qwen-flash`,
-and a successful file/state check. To inspect mounted paths and options
+Expected: V2 version and a successful file/state check. Custom model
+availability should be checked after authentication in step D. To inspect mounted paths and options
 without opening credentials:
 
 ```bash
@@ -114,7 +113,12 @@ A quick non-interactive auth check (do **not** show token data):
 
 ```bash
 bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode auth list
+bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode models proxyapi
 ```
+
+Expected: authenticated provider `proxyapi` and your model alias listed.
+If `models proxyapi` shows no models before connecting, that is not by
+itself a failure; retry after `/connect`.
 
 Test a **real** model request (charges a small number of tokens):
 
