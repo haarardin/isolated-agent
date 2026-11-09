@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-import importlib.util
+import tomllib
 from pathlib import Path
 import re
 import sys
@@ -36,6 +36,14 @@ def select_agent(runtime: str, registry: Path = REGISTRY) -> list[str]:
     return command
 
 
+def enabled_runtime(runtime: str) -> bool:
+    """Check declarative installation selection before invoking Compose."""
+    config = tomllib.loads((ROOT / "dependencies/dependencies.toml").read_text())
+    matches = [a["enabled"] for a in config.get("agents", [])
+               if a.get("id") == runtime]
+    return len(matches) == 1 and matches[0] is True
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
@@ -45,16 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    # Runtime registration is not installation. Reject disabled agents before
-    # asking Podman to execute any command (even if a stale CLI still exists).
-    spec = importlib.util.spec_from_file_location("agent_dependencies", ROOT / "scripts/dependencies.py")
-    module = importlib.util.module_from_spec(spec)
+    # Runtime registration is not installation; fail before Podman when
+    # selected agent is disabled even if an old CLI is still present.
     try:
-        spec.loader.exec_module(module)
-        config = module.parse()
-        if not module.agent_enabled(config, runtime):
+        if not enabled_runtime(runtime):
             raise ValueError(f"agent {runtime!r} is disabled in [[agents]]; enable and rebuild")
-    except (ValueError, OSError, RuntimeError) as exc:
+    except (ValueError, OSError, KeyError, tomllib.TOMLDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     # execvp replaces this process and preserves terminal signal handling.
