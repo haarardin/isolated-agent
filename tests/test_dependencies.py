@@ -316,6 +316,20 @@ url="http://unsafe.example/mcp"
         self.assertNotIn("config/opencode.jsonc", image)
         self.assertIn("/config/opencode.jsonc", (ROOT / ".gitignore").read_text())
 
+    def test_explicit_no_cache_rebuild_is_opt_in(self):
+        # Do not launch Podman; verify the effective command passed to it.
+        for enabled in (False, True):
+            with self.subTest(no_cache=enabled), tempfile.TemporaryDirectory() as td:
+                with mock.patch.object(deps, "OUT", Path(td)), \
+                     mock.patch.object(deps.subprocess, "run") as run, \
+                     mock.patch("sys.argv", ["dependencies.py", "build"] +
+                                (["--no-cache"] if enabled else [])):
+                    self.assertEqual(deps.main(), 0)
+                    self.assertEqual(run.call_count, 1)
+                    command = run.call_args.args[0]
+                    self.assertEqual(command[:2], ["podman", "build"])
+                    self.assertEqual("--no-cache" in command, enabled)
+
     def test_native_opencode_installer_has_no_version_pin(self):
         # The installer must keep working when upstream changes major/minor
         # versions or CLI output format; do not parse a version banner.
