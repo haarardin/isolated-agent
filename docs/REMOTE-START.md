@@ -188,6 +188,7 @@ make preflight
 
 make build-project        # adds /root/Documents -> /workspace to the image
 make recreate-agent       # deploys image; does NOT delete named volumes
+make up                   # ensure online Squid proxy is started
 make network-check
 make remote-start         # daemon was stopped by container recreation
 make remote-status
@@ -214,6 +215,7 @@ Project image and lifecycle as other modules:
 make deps-validate
 make build-project
 make recreate-agent
+make up
 make network-check
 make remote-start
 make remote-doctor
