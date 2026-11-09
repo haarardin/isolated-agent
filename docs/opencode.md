@@ -183,7 +183,10 @@ an npm-based MCP server may still need them if explicitly configured.
 Follow **[OpenCode + ProxyAPI smoke test](opencode-smoke-test.md)** for
 precise instructions and expected outcomes. Important checks:
 
-- `make doctor` checks installed runtimes and container isolation.
+- `make doctor` checks installed runtimes and container isolation. For
+  OpenCode it uses the `isolated-agent-opencode` XDG wrapper, including
+  for `--version`, because the native executable initializes logs and the
+  container root filesystem is deliberately read-only.
 - `make opencode-mcp` checks optional MCP connectivity.
 - `make network-check` verifies rootless network boundary (not ProxyAPI
   API availability).
