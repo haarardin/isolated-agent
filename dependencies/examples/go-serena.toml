@@ -1,4 +1,18 @@
 # Example of a Go project using Serena as a GENERIC embedded MCP tool.
+# The coding runtime is installed ONLY when enabled in [[agents]].
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
 [base]
 image = "debian:13-slim"
 [apt]
