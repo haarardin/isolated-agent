@@ -152,12 +152,47 @@ class ProjectLifecycleTests(unittest.TestCase):
         self.assertFalse(self.commands("start"))
         self.assertTrue(self.cli.file.exists())
 
-    def test_mount_mismatch_prevents_any_stop(self):
-        self.fake.items["a" * 64]["Mounts"][0]["Source"] = "/another/workspace"
-        with self.assertRaisesRegex(RuntimeError, "another workspace"):
+    def test_lifecycle_ignores_workspace_and_agent_state_mounts(self):
+        # OpenCode-only containers have no /root/.codex mount. Neither
+        # stop nor start should inspect mounts or compare workspace paths.
+        agent = self.fake.items["a" * 64]
+        agent["Mounts"] = [
+            {"Destination": "/workspace", "Type": "bind",
+             "Source": "/different/workspace"},
+            {"Destination": "/root/.isolated-opencode", "Type": "bind",
+             "Source": "/another/state"},
+        ]
+        with mock.patch.dict(os.environ, {
+            "PROJECT_DIR": "/unexpected/path",
+            "CODEX_STATE_MOUNT_SOURCE": "/wrong/codex/state",
+        }):
             self.cli.stop()
+            self.assertEqual(self.status("a"), "exited")
+            self.assertEqual(self.status("b"), "exited")
+            self.cli.start()
+        self.assertEqual(self.status("a"), "running")
         self.assertEqual(self.status("b"), "running")
         self.assertFalse(self.cli.file.exists())
+
+    def test_unmanaged_same_project_container_is_not_stopped(self):
+        unmanaged = container("f", PROJECT, "agent")
+        del unmanaged["Config"]["Labels"]["io.podman.compose.service"]
+        self.fake.items[unmanaged["Id"]] = unmanaged
+        self.cli.stop()
+        self.assertEqual(self.status("f"), "running")
+        self.assertEqual(self.status("a"), "exited")
+        self.cli.start()
+        self.assertEqual(self.status("f"), "running")
+        self.assertFalse(any(c[-1] == "f" * 64 for c in self.commands("stop")))
+
+    def test_saved_container_moved_to_other_project_blocks_start(self):
+        self.cli.stop()
+        agent = self.fake.items["a" * 64]
+        agent["Config"]["Labels"]["io.podman.compose.project"] = "some-other-project"
+        with self.assertRaisesRegex(RuntimeError, "another project"):
+            self.cli.start()
+        self.assertFalse(self.commands("start"))
+        self.assertTrue(self.cli.file.exists())
 
     def test_old_checkpoint_cannot_start_other_project_identity(self):
         self.cli.stop()
