@@ -81,13 +81,13 @@ and [Go + OpenCode + Serena example](dependencies/examples/go-opencode-serena.to
 
 ## Persistent Codex and optional Agent Tool state
 
-When Codex is enabled, its default home (auth, SQLite memories and session
-history, is bind-mounted from the gitignored host directory
-`./volumes/codex/<project-key>`. `make up`, `make offline` and
-`make recreate-agent` prepare this state. A per-project identity
-marker prevents accidental cross-project Codex state reuse. When Codex is
- disabled, this mount is not provisioned; enabled OpenCode uses its own
- `./volumes/opencode/<project-key>` state.
+When Codex is enabled, its home — including authentication, SQLite
+memories and session history — is bind-mounted from the gitignored
+`./volumes/codex/<project-key>` directory. `make up`, `make offline`
+and `make recreate-agent` prepare this state. A per-project identity
+marker prevents accidental cross-project state reuse. When Codex is
+disabled, its persistent state is not mounted; enabled OpenCode uses its
+own `./volumes/opencode/<project-key>` directory.
 
 Additional tools opt into persistence through `[agent_tools.state]`,
 which mounts a separate `./volumes/.../<project-key>` directory into
