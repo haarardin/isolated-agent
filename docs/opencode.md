@@ -6,6 +6,9 @@ entrypoint. Registered runtimes live in `config/agent-runtimes.json`. OpenCode V
 is an optional **embedded Agent Tool** running in the **same rootless Podman
 agent** with the same /workspace and installed MCP toolchain.
 
+For a step-by-step verification on Debian 13 rootless Podman, use
+**[the ProxyAPI smoke-test runbook](opencode-smoke-test.md)** first.
+
 ## Enable
 
 In `dependencies/dependencies.toml`, change `enabled = false` to `true`
@@ -15,7 +18,7 @@ this `isolated-agent` checkout, not the Go/CAD/etc project.
 
 ```bash
 umask 077
-cp config/opencode.example.jsonc config/opencode.jsonc
+test -e config/opencode.jsonc || cp config/opencode.example.jsonc config/opencode.jsonc
 # edit config/opencode.jsonc to select your models / provider
 ```
 
@@ -43,9 +46,16 @@ make agent
 make opencode-mcp
 ```
 
-The checked-in example uses **ProxyAPI** as an OpenAI-compatible custom
-provider; it only declares the endpoint and an illustrative model ID.
-Confirm the exact model ID supported by your ProxyAPI account and adjust it.
+The checked-in minimal example `config/opencode.example.jsonc` uses
+**ProxyAPI** as an OpenAI-compatible custom provider. A separate optional
+`config/opencode.proxyapi-multi.example.jsonc` adds illustrative OpenAI,
+Anthropic, Google, and Qwen model IDs through the same ProxyAPI key and
+OpenAI-compatible endpoint. Those model IDs and the tool-calling compatibility
+must be confirmed with your ProxyAPI subscription; the multi-model example is
+not a guarantee that every model supports that endpoint. A Go+Serena
+dependency manifest is available at
+`dependencies/examples/go-opencode-serena.toml`. Merge its entries into a
+customized `dependencies.toml` rather than overwriting other tools.
 After `make agent`, use `/connect` → `Other` → `proxyapi` to enter the
 existing ProxyAPI key, then `/models` to select the model. The example also
 allows `PROXYAPI_API_KEY` as an optional environment variable, but does not
@@ -112,17 +122,23 @@ it. OpenCode models and authentication are independent of Codex.
 
 ## Verify
 
+Run the full [smoke-test runbook](opencode-smoke-test.md). It includes
+expected output and troubleshooting for the isolated external config, image
+rebuild, selected runtime, ProxyAPI credentials, a real model request, MCP,
+session persistence and `make network-check`.
+
+For a quick static preflight (no Podman needed):
+
 ```bash
+python3 -m unittest discover -s tests -p 'test_agent_dispatch.py' -v
 python3 -m unittest discover -s tests -p 'test_dependencies.py' -v
 bash scripts/test-security-static.sh
 make deps-generate
 make deps-validate
 ```
 
-On the target Debian 13 / rootless Podman host, additionally verify
-`opencode --version`, provider authentication, `make opencode-mcp`, a
-real headless task, and session recovery after recreate. Live Podman and LLM
-smoke tests are **not** part of the static CI checks.
+Static tests cannot validate a real provider response, runtime networking or
+Serena's MCP handshake. Those require the manual Podman smoke test.
 
 References:
 - https://opencode.ai/v2/docs
