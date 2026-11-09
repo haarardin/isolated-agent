@@ -1,50 +1,26 @@
 #!/usr/bin/env bash
-# Install the native OpenCode V2 binary; DO NOT pull Node.js or npm.
-# The official V2 bootstrap downloads the architecture-specific CLI archive.
-# Runs inside the Dependencies image build only, never on the host.
+# Install the current OpenCode CLI release without Node.js or npm.
+# The upstream installer resolves the latest release for this platform.
+# Runs only inside the Dependencies image build, never on the host.
 set -Eeuo pipefail
-
-# Accept all documented CLI spellings without hiding a version mismatch:
-#   2.0.0, v2.0.0, opencode 2.0.0, opencode v2.0.0.
-verify_opencode_version() {
-  local actual="$1" expected="$2"
-  actual="${actual#opencode }"
-  actual="${actual#v}"
-  [[ "$actual" == "$expected" ]]
-}
-
-main() {
-version="${1:-2.0.0}"
-[[ "$version" =~ ^2\.[0-9]+\.[0-9]+$ ]] || {
-  echo "ERROR: expected a pinned OpenCode V2 release (e.g. 2.0.0)" >&2
-  exit 2
-}
 
 installer="$(mktemp /tmp/opencode-installer.XXXXXXXX)"
 trap 'rm -f "$installer"' EXIT
 curl --fail --location --silent --show-error --retry 3 \
   https://opencode.ai/v2/install -o "$installer"
 
-# The upstream script takes --version, --no-modify-path and writes a native
-# executable to $HOME/.opencode/bin. No Node/npm runtime is installed.
-bash "$installer" --version "$version" --no-modify-path
+# No --version argument: let the official installer select the latest release.
+# --no-modify-path avoids modifying root's shell startup files in the image.
+bash "$installer" --no-modify-path
 
 test -x "$HOME/.opencode/bin/opencode" || {
   echo "ERROR: upstream OpenCode installer did not produce the CLI" >&2
   exit 1
 }
 install -m 0755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode
-actual="$(opencode --version)"
-verify_opencode_version "$actual" "$version" || {
-  echo "ERROR: expected OpenCode $version, got $actual" >&2
-  exit 1
-}
-# Keep only the selected binary, not install-time launcher files.
+
+# Test that the resulting executable works; do not parse or pin a version.
+opencode --version
+
+# Keep the installed binary, not the installer-created launcher directory.
 rm -rf "$HOME/.opencode/bin"
-
-}
-
-# Allow importing the pure checker in regression tests without installing.
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  main "$@"
-fi
