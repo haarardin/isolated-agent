@@ -75,10 +75,10 @@ class AgentDispatchTests(unittest.TestCase):
             ):
                 with self.subTest(codex=codex_enabled, opencode=opencode_enabled):
                     manifest.write_text(
-                        '[[agents]]\\nid = "codex"\\nenabled = ' +
+                        '[[agents]]\nid = "codex"\nenabled = ' +
                         str(codex_enabled).lower() +
-                        '\\n[[agents]]\\nid = "opencode"\\nenabled = ' +
-                        str(opencode_enabled).lower() + '\\n'
+                        '\n[[agents]]\nid = "opencode"\nenabled = ' +
+                        str(opencode_enabled).lower() + '\n'
                     )
                     with mock.patch.object(agent, "ROOT", root):
                         self.assertEqual(agent.enabled_runtime("codex"), codex_enabled)
