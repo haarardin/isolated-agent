@@ -22,7 +22,9 @@ class DependencyTests(unittest.TestCase):
             out = Path(td)
             manifest = deps.generate(cfg, out)
             image = (out / "Containerfile.dependencies").read_text()
-            self.assertIn("ARG CODEX_IMAGE=", image)
+            self.assertIn("ARG BASE_IMAGE=", image)
+            self.assertIn("install-codex.sh", image)
+            self.assertNotIn("@opencode/cli", image)
             self.assertNotIn("go install", image)
             self.assertEqual(manifest["sidecars"], [])
             self.assertIn("services: {}", (out / "compose.tools.yaml").read_text())
@@ -244,14 +246,17 @@ url="http://unsafe.example/mcp"
     def test_optional_opencode_cli_and_scoped_state(self):
         cfg = deps.parse()
         self.assertEqual([x["id"] for x in deps.enabled(cfg)], [])
-        tool = next(x for x in cfg["agent_tools"] if x["id"] == "opencode")
-        self.assertFalse(tool["enabled"])
-        self.assertEqual(tool["state"]["target"], "/root/.isolated-opencode")
-        tool["enabled"] = True
+        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["codex"])
+        agent = next(x for x in cfg["agents"] if x["id"] == "opencode")
+        self.assertFalse(agent["enabled"])
+        self.assertEqual(agent["state"]["target"], "/root/.isolated-opencode")
+        agent["enabled"] = True
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
             out = Path(td)
             deps.generate(cfg, out)
             self.assertIn("@opencode/cli@2.0.0", (out / "Containerfile.dependencies").read_text())
+            self.assertIn("install-codex.sh", (out / "Containerfile.dependencies").read_text())
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "codex\nopencode\n")
             compose = (out / "compose.tools.yaml").read_text()
             self.assertIn("/root/.isolated-opencode:rw", compose)
             readonly = str(ROOT / "config" / "opencode.jsonc") + ":/opt/isolated-agent/opencode-user.jsonc:ro"
@@ -263,7 +268,7 @@ url="http://unsafe.example/mcp"
 
     def test_opencode_config_preflight_missing_symlink_and_valid(self):
         cfg = deps.parse()
-        next(x for x in cfg["agent_tools"] if x["id"] == "opencode")["enabled"] = True
+        next(x for x in cfg["agents"] if x["id"] == "opencode")["enabled"] = True
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             config_dir = root / "config"
@@ -279,7 +284,7 @@ url="http://unsafe.example/mcp"
                 local.unlink()
                 local.write_text('{"model": "proxyapi/qwen-flash"}')
                 deps.prepare_tool_state(cfg)
-                path = deps.state_dir(cfg["agent_tools"][0], "test-project")
+                path = deps.state_dir(next(x for x in cfg["agents"] if x["id"] == "opencode"), "test-project")
                 self.assertTrue(path.is_dir())
                 # Local config remains on the host, outside generated state.
                 self.assertFalse((path / "opencode.jsonc").exists())
@@ -299,7 +304,8 @@ url="http://unsafe.example/mcp"
 
     def test_documented_opencode_go_serena_example(self):
         cfg = deps.parse(ROOT / "dependencies/examples/go-opencode-serena.toml")
-        self.assertEqual([x["id"] for x in deps.enabled(cfg)], ["opencode", "serena"])
+        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["opencode"])
+        self.assertEqual([x["id"] for x in deps.enabled(cfg)], ["serena"])
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
             deps.generate(cfg, out)
@@ -327,6 +333,65 @@ url="http://unsafe.example/mcp"
         # The default template is plain JSON; copy+edit with json.tool is valid.
         data = json.loads((ROOT / "config/opencode.example.jsonc").read_text())
         self.assertEqual(data["model"], "proxyapi/qwen-flash")
+
+    def test_agents_disabled_do_not_install_or_mount(self):
+        cfg = deps.parse()
+        for agent in cfg["agents"]:
+            agent["enabled"] = False
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            image = (out / "Containerfile.dependencies").read_text()
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertNotIn("install-codex.sh", image)
+            self.assertNotIn("@opencode/cli", image)
+            self.assertNotIn("/root/.codex", compose)
+            self.assertNotIn("/root/.isolated-opencode", compose)
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "")
+
+    def test_only_opencode_installed_without_codex(self):
+        cfg = deps.parse()
+        next(x for x in cfg["agents"] if x["id"] == "codex")["enabled"] = False
+        next(x for x in cfg["agents"] if x["id"] == "opencode")["enabled"] = True
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            image = (out / "Containerfile.dependencies").read_text()
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertNotIn("install-codex.sh", image)
+            self.assertIn("@opencode/cli@2.0.0", image)
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            self.assertNotIn("target: /root/.codex", compose)
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "opencode\n")
+
+    def test_invalid_agent_configuration_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bad.toml"
+            common = '''[[agents]]
+id = "codex"
+enabled = true
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+'''
+            for case in (
+                common,  # no install steps
+                common + '[[agents.install]]\ntype = "apt"\npackages = ["curl"]\n[[agents]]\nid = "codex"\nenabled = false\n',
+                '''[[agents]]
+id = "opencode"
+enabled = true
+[[agents.install]]
+type = "command"
+run = "true"
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.codex"
+''',
+            ):
+                with self.subTest(case=case):
+                    path.write_text(case)
+                    with self.assertRaises(ValueError):
+                        deps.parse(path)
 
     def test_generation_is_deterministic(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
