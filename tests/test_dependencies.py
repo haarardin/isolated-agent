@@ -310,6 +310,23 @@ url="http://unsafe.example/mcp"
                 # Local config remains on the host, outside generated state.
                 self.assertFalse((path / "opencode.jsonc").exists())
 
+    def test_doctor_uses_opencode_xdg_wrapper_on_read_only_root(self):
+        # The native CLI writes a log even for --version; direct execution
+        # tries /root/.local/share/opencode on a read-only filesystem.
+        doctor_path = ROOT / "scripts/doctor.sh"
+        subprocess.run(["bash", "-n", str(doctor_path)], check=True)
+        doctor = doctor_path.read_text()
+        wrapper = (ROOT / "scripts/opencode.sh").read_text()
+        self.assertIn("/usr/local/bin/isolated-agent-opencode --version", doctor)
+        self.assertNotIn("\\n    opencode --version\\n", doctor)
+        self.assertLess(
+            doctor.index("test -w /root/.isolated-opencode"),
+            doctor.index("/usr/local/bin/isolated-agent-opencode --version"),
+        )
+        for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+            self.assertIn("export " + variable, wrapper)
+        self.assertIn('exec opencode "$@"', wrapper)
+
     def test_opencode_config_is_not_baked_or_in_workspace(self):
         example = ROOT / "config" / "opencode.example.jsonc"
         data = json.loads(example.read_text())
