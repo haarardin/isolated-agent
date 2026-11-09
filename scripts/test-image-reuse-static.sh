@@ -31,12 +31,16 @@ output="$(
 
 for image in \
   localhost/isolated-agent-base:dev \
-  localhost/isolated-agent-codex:dev \
   "localhost/isolated-agent-project-${key}:dev"
 do
   printf '%s\n' "${output}" | grep -Fq "Reusing existing image: ${image}"
   grep -Fq "image exists ${image}" "${log}"
 done
+
+if grep -Fq "image exists localhost/isolated-agent-codex:dev" "${log}"; then
+  echo "ERROR: unused legacy Codex image checked for OpenCode-capable builds" >&2
+  exit 1
+fi
 
 if grep -Eq '(^| )build( |$)' "${log}"; then
   echo 'ERROR: ensure-images rebuilt an image that already exists' >&2
