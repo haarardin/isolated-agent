@@ -318,7 +318,26 @@ def state_dir(tool, project_name):
     return (ROOT / state.get("base", "./volumes/tools/" + tool["id"]) / key).resolve()
 
 
+def opencode_user_config():
+    """Local runtime configuration is deliberately outside PROJECT_DIR.
+
+    The file is never baked into an image and never mounted read-write.
+    """
+    return ROOT / "config" / "opencode.jsonc"
+
+
+def verify_opencode_user_config():
+    path = opencode_user_config()
+    if path.is_symlink() or not path.is_file():
+        err("OpenCode requires a regular local config file at config/opencode.jsonc; "
+            "copy config/opencode.example.jsonc to config/opencode.jsonc "
+            "(the destination is gitignored).")
+    return path
+
+
 def prepare_tool_state(data):
+    if any(t["id"] == "opencode" for t in enabled(data)):
+        verify_opencode_user_config()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "isolated-agent-demo")
     for tool in enabled(data):
         path = state_dir(tool, project_name)
@@ -358,6 +377,13 @@ def generate(data, folder=OUT):
         compose += ["  agent:", "    volumes:"]
         for t, path in agent_states:
             compose.append("      - " + json.dumps(str(path) + ":" + t["state"]["target"] + ":rw"))
+    # The provider config stays in the isolated-agent checkout, not /workspace
+    # or the immutable image. A single read-only file is the only extra bind.
+    # Do not check the file at generation/build time: the developer creates it
+    # before `make up` and prepare_tool_state verifies it is a regular file.
+    if any(t["id"] == "opencode" and t["placement"] == "embedded" for t in enabled(data)):
+        compose.append("      - " + json.dumps(
+            str(opencode_user_config()) + ":/opt/isolated-agent/opencode-user.jsonc:ro"))
     mcp = ["# Generated MCP configuration"]
     opencode_servers = {}
     for tool in enabled(data):
