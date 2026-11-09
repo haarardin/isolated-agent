@@ -532,6 +532,7 @@ def main():
     parser.add_argument("--base-image", default="localhost/isolated-agent-base:dev")
     parser.add_argument("--codex-image", default="localhost/isolated-agent-codex:dev")
     parser.add_argument("--deps-image", default="localhost/isolated-agent-dependencies:dev")
+    parser.add_argument("--no-cache", action="store_true", help="Rebuild image layers without Podman cache")
     parser.add_argument("--name", default="")
     args = parser.parse_args()
     try:
@@ -570,9 +571,13 @@ def main():
                 print("WARNING:", warning, file=sys.stderr)
         if args.action != "build":
             return 0
-        subprocess.run([args.engine, "build", "-f", str(OUT / "Containerfile.dependencies"),
-                        "--build-arg", "BASE_IMAGE=" + args.base_image, "-t",
-                        args.deps_image, "."], cwd=ROOT, check=True)
+        build_cmd = [args.engine, "build"]
+        if args.no_cache:
+            build_cmd.append("--no-cache")
+        build_cmd += ["-f", str(OUT / "Containerfile.dependencies"),
+                      "--build-arg", "BASE_IMAGE=" + args.base_image,
+                      "-t", args.deps_image, "."]
+        subprocess.run(build_cmd, cwd=ROOT, check=True)
         for name in summary["sidecars"]:
             subprocess.run([args.engine, "build", "-f", str(OUT / ("Containerfile.tool-" + name)),
                             "--build-arg", "BASE_IMAGE=" + args.base_image,
