@@ -69,9 +69,9 @@ help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
-	  'make build          Build Base, Codex, Dependencies and Project images' \
+	  'make build          Build Base, enabled agents, Dependencies and Project images' \
 	  'make deps-plan     Inspect generated tools and MCP configuration' \
-	  'make ensure-images  Reuse Base, Codex and Project images; build only missing' \
+	  'make ensure-images  Reuse Base and Project images; build only missing' \
 	  'make test-image-reuse-static Validate image reuse logic without Podman' \
 	  'make test-project-context-static Validate /workspace project context rules' \
 	  'make up             Start agent with filtered Squid egress' \
@@ -127,7 +127,9 @@ network-ensure: preflight
 	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 prepare-state:
-	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"
+	@if [ "$(python3 scripts/dependencies.py agent-enabled --name codex)" = "true" ]; then \
+	python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"; \
+	else printf "Codex disabled; skipping Codex state preparation.\\n"; fi
 
 prepare-web: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/prepare-web.sh
@@ -145,7 +147,7 @@ deps-tool-state:
 	@python3 scripts/dependencies.py tool-state
 
 deps-build: deps-generate
-	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
+	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
 
 deps-reconcile: deps-generate
 	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
@@ -167,11 +169,12 @@ doctor:
 lsp-doctor:
 	@bash scripts/compose.sh exec agent bash /usr/local/bin/isolated-agent-tool-lsp-runtime probe
 
-build: build-base build-codex build-project
+build: build-base build-project
 
 # Fast bootstrap for additional repository clones on the same rootless-Podman
 # host. Podman image storage is shared by tag for the current host user, so
 # reuse an existing image instead of invoking a redundant build.
+# The legacy Codex image target is retained but is not part of the active build.
 #
 # This intentionally checks only image existence. If project-level inputs
 # change, use make build-project. Project-specific
@@ -194,7 +197,7 @@ ensure-codex-image: ensure-base-image
 		$(MAKE) build-codex; \
 	fi
 
-ensure-project-image: ensure-codex-image
+ensure-project-image: ensure-base-image
 	@if $(PODMAN) image exists "$(PROJECT_IMAGE)"; then \
 		printf 'Reusing existing image: %s\n' "$(PROJECT_IMAGE)"; \
 	else \
@@ -331,6 +334,7 @@ network-static:
 	@bash scripts/test-security-static.sh
 
 login:
+	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex login --device-auth
 
 # The default entrypoint dispatches to a trusted registered CLI without
@@ -339,17 +343,21 @@ agent:
 	@python3 scripts/agent.py
 
 codex:
+	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex
 
 # The optional OpenCode V2 CLI is installed with the generic Agent Tools
 # manifest. Do not publish the agent API as a host port.
 opencode:
+	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
 
 opencode-mcp:
+	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode mcp list
 
 opencode-serve:
+	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode serve --hostname 127.0.0.1 --port 4096
 
 shell:
