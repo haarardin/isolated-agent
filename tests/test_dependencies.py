@@ -297,6 +297,37 @@ url="http://unsafe.example/mcp"
         self.assertNotIn("config/opencode.jsonc", image)
         self.assertIn("/config/opencode.jsonc", (ROOT / ".gitignore").read_text())
 
+    def test_documented_opencode_go_serena_example(self):
+        cfg = deps.parse(ROOT / "dependencies/examples/go-opencode-serena.toml")
+        self.assertEqual([x["id"] for x in deps.enabled(cfg)], ["opencode", "serena"])
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            img = (out / "Containerfile.dependencies").read_text()
+            self.assertIn("@opencode/cli@2.0.0", img)
+            self.assertIn("gopls@v0.20.0", img)
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            self.assertIn("/root/.serena:rw", compose)
+            self.assertIn("/opt/isolated-agent/opencode-user.jsonc:ro", compose)
+            mcp = json.loads((out / "opencode-mcp.json").read_text())
+            self.assertIn("serena", mcp["mcp"]["servers"])
+            self.assertEqual(mcp["mcp"]["servers"]["serena"]["type"], "local")
+
+    def test_documented_proxyapi_config_examples(self):
+        for name in ("opencode.example.jsonc", "opencode.proxyapi-multi.example.jsonc"):
+            path = ROOT / "config" / name
+            example = path.read_text()
+            self.assertIn('"providers"', example)
+            self.assertIn('"baseURL": "https://api.proxyapi.ru/v1"', example)
+            self.assertIn('"env": ["PROXYAPI_API_KEY"]', example)
+            self.assertNotIn("sk-", example)
+            self.assertNotIn('"apiKey"', example)
+            self.assertIn('"modelID"', example)
+        # The default template is plain JSON; copy+edit with json.tool is valid.
+        data = json.loads((ROOT / "config/opencode.example.jsonc").read_text())
+        self.assertEqual(data["model"], "proxyapi/qwen-flash")
+
     def test_generation_is_deterministic(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             first = deps.generate(deps.parse(), Path(a))
