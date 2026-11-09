@@ -66,9 +66,16 @@ enable its optional Agent Tool and rebuild first (see [OpenCode setup](docs/open
 
 OpenCode provider/model configuration does **not** belong in `PROJECT_DIR`.
 Copy `config/opencode.example.jsonc` to gitignored `config/opencode.jsonc`
-inside the `isolated-agent` checkout. When OpenCode is enabled, this local
-file is mounted **read-only** and loaded via `OPENCODE_CONFIG`; its API keys
-are entered via `/connect` and stored in the existing persistent agent state.
+inside the `isolated-agent` checkout. For an optional multi-model ProxyAPI
+example see `config/opencode.proxyapi-multi.example.jsonc`; the optional Go
+SDK + Serena MCP example is `dependencies/examples/go-opencode-serena.toml`.
+When OpenCode is enabled, its config is mounted **read-only** and loaded via
+`OPENCODE_CONFIG`. Enter the provider key via `/connect` so it stays in
+persistent OpenCode state rather than in a source file.
+
+For an exact, safe sequence of commands and expected results on Debian 13,
+follow **[OpenCode + ProxyAPI smoke test](docs/opencode-smoke-test.md)**.
+Do not merge the draft PR based only on passing static CI.
 
 
 ## Persistent Codex and optional Agent Tool state
