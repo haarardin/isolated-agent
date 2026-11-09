@@ -31,6 +31,8 @@ BLOCK_CIDRS ?=
 SQUID_IMAGE ?= docker.io/ubuntu/squid:6.6-24.04_edge
 export COMPOSE_PROJECT_NAME AGENT_NETWORK_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
 PODMAN ?= podman
+# Opt-in: force a fresh Dependencies image install (e.g. latest OpenCode).
+DEPS_NO_CACHE ?= false
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
@@ -147,7 +149,7 @@ deps-tool-state:
 	@python3 scripts/dependencies.py tool-state
 
 deps-build: deps-generate
-	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
+	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)" $(if $(filter true 1 yes,$(DEPS_NO_CACHE)),--no-cache,)
 
 deps-reconcile: deps-generate
 	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
