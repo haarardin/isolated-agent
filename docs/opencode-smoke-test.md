@@ -1,210 +1,283 @@
-# OpenCode V2 + ProxyAPI: manual verification (PR #11)
+# Manual acceptance: selectable coding agents / OpenCode V2 + ProxyAPI
 
-This is a **manual** runbook for a **rootless Podman** host (Debian 13).
-It tests the optional OpenCode runtime in the `feat/opencode-v2-optional-runtime`
-branch. No API keys are checked in, put into `.env`, or baked into images.
-`PROJECT_DIR` remains the only approved source-code bind.
+Run on the **local Debian 13 rootless-Podman host**. These are manual
+acceptance checks for PR #11, not promises that the current image has
+already been built against a live provider.
 
-**Prerequisites:** Podman rootless + podman-compose, Make, Python >=3.11,
-a real project directory (or the included `./workspace` test directory),
-working access to ProxyAPI with its API key and a supported model.
-API calls can incur charges. Use a non-sensitive test repository.
+**Important:** `AGENT_RUNTIME` in `.env` selects which installed coding
+runtime starts, while `[[agents]].enabled` controls **installation**.
+Both Codex and OpenCode may be enabled. `make build` installs **only**
+enabled coding runtimes, with **no Node.js/npm for OpenCode itself**.
+Node/npm can be requested separately for project or MCP requirements.
 
-## A. Select the branch and preserve local settings
+Use an **unimportant scratch workspace** for first-run tests.
+Do not reset Codex state volumes or reveal credentials in logs/issues.
+
+## A. Update the PR checkout and local environment
 
 ```bash
 cd /path/to/isolated-agent
+git status --short
 git fetch origin
 git switch feat/opencode-v2-optional-runtime
 git pull --ff-only
 
-# Only create .env when missing; do not overwrite an existing one.
 test -f .env || cp .env.example .env
+mkdir -p workspace
+printf '# OpenCode smoke workspace\nThis repository is safe for test prompts.\n' > workspace/README.md
 ```
 
-Edit `.env` and set `AGENT_RUNTIME=opencode`. Set `PROJECT_DIR` to your
-approved host repository path. For an isolated scratch test, keep the default
-`PROJECT_DIR=./workspace` and place a harmless `README.md` inside it.
-Never point `PROJECT_DIR` at the isolated-agent checkout or your home
-directory.
+If `git status` shows important local modifications, save them before
+switching. Do not change someone else's `.env` or `PROJECT_DIR`.
 
-Enable the **existing** OpenCode Agent Tool in
-`dependencies/dependencies.toml` by changing its `enabled = false` to
-`enabled = true`. Keep its `install` and `state` entries intact.
+Edit **`.env`**:
 
-## B. Prepare the isolated provider config
+```dotenv
+AGENT_RUNTIME=opencode
+PROJECT_DIR=./workspace
+```
+
+If you have an existing app you want to test, use its absolute path for
+`PROJECT_DIR` instead.
+
+## B. Enable only OpenCode (smallest test image)
+
+Edit **`dependencies/dependencies.toml`** — these entries already exist,
+so change just their `enabled` fields:
+
+```toml
+[[agents]]
+id = "codex"
+enabled = false
+# Keep its [[agents.install]] and [agents.state] sections intact.
+
+[[agents]]
+id = "opencode"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-opencode.sh"
+args = ["2.0.0"]
+verify = ["opencode --version"]
+
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
+```
+
+The actual `codex` entry with its install/state sections appears earlier
+in the same TOML file; do not replace the whole document with this snippet.
+OpenCode installs through its **official version-pinned standalone shell
+installer**; the Debian Base does not install Node or npm.
+
+Alternatively enable **both** agents by setting both `enabled = true`,
+then switch only `AGENT_RUNTIME` to choose the CLI at launch.
+
+## C. Create the gitignored provider configuration
 
 ```bash
 umask 077
-test -e config/opencode.jsonc || cp config/opencode.example.jsonc config/opencode.jsonc
+test -f config/opencode.jsonc || cp config/opencode.example.jsonc config/opencode.jsonc
 python3 -m json.tool config/opencode.jsonc >/dev/null
 git check-ignore config/opencode.jsonc
 ```
 
-Expected: JSON validation succeeds and `git check-ignore` prints
-`config/opencode.jsonc`. This config is *outside* `PROJECT_DIR`, ignored
-by Git, and mounted read-only at
-`/opt/isolated-agent/opencode-user.jsonc` in the agent container.
-The OpenCode wrapper sets `OPENCODE_CONFIG` to this path.
+Expected: `git check-ignore` prints `config/opencode.jsonc`.
+The provider settings live in **isolated-agent/config**, not in the
+source-code `PROJECT_DIR`. The container mounts this **one file read-only**
+at `/opt/isolated-agent/opencode-user.jsonc`; OpenCode uses
+`OPENCODE_CONFIG` to read it. The system-level generated MCP config remains
+at `/etc/opencode/opencode.json`.
 
-The example uses `proxyapi/qwen-flash` mapped to
-`qwen/qwen3.8-flash`. Check the actual model ID in
-https://proxyapi.ru/models/browse and edit `modelID` if necessary.
-For other optional models, use
-`config/opencode.proxyapi-multi.example.jsonc`; do not replace your
-local config if you want to keep its settings.
+The default `proxyapi` example maps `proxyapi/qwen-flash` to the upstream
+identifier `qwen/qwen3.8-flash`. Confirm its availability at
+https://proxyapi.ru/models/browse, and adjust the local `modelID`
+if it is not offered. No API key belongs in this file, in `.env`,
+the image, or Git. Enter it later via `/connect`.
 
-**Do not paste your ProxyAPI key into `config/opencode.jsonc`.**
-Connect it interactively in step D. An optional `env` declaration in the
-example is for environments where the key is supplied securely; the default
-container deliberately does not forward `PROXYAPI_API_KEY`.
+The optional `config/opencode.proxyapi-multi.example.jsonc` shows
+additional *illustrative* models through one proxy key. Because this
+example contains JSONC comments, a strict `python3 -m json.tool` check
+is only suitable for the **minimal** example above.
 
-OpenCode merges configuration sources. A higher-priority
-`PROJECT_DIR/opencode.jsonc` or `PROJECT_DIR/opencode.json` could override
-the external config; remove or inspect those project configs for this test.
+Project-level `opencode.json(c)` files may override provider settings.
+For this first test, avoid conflicting project configs.
 
-## C. Static checks, build and container lifecycle
+## D. Static preflight + real image build
 
 ```bash
 make deps-validate
-python3 -m unittest discover -s tests -p 'test_agent_dispatch.py' -v
-python3 -m unittest discover -s tests -p 'test_dependencies.py' -v
-bash scripts/test-security-static.sh
 make deps-plan
+python3 -m unittest discover -s tests -p 'test_dependencies.py' -v
+python3 -m unittest discover -s tests -p 'test_agent_dispatch.py' -v
+bash scripts/test-security-static.sh
+
 make build
-make up
-make recreate-agent
 ```
 
-`make build` installs the pinned OpenCode binary when enabled. A
-`make recreate-agent` is required when changing image contents or mounts,
-not when only editing the host config file.
+Expected: Base, Dependencies and Project images build successfully.
+`make build` no longer needs the old standalone Codex image stage.
+If `codex.enabled=false`, Codex is **not installed** in the new Dependencies
+image. If `opencode.enabled=true`, the **native** CLI is installed;
+Node.js/npm are not installed unless declared under `[apt]`, `[[install]]`,
+or some enabled `[[agent_tools.install]]` (e.g. Node-based MCP).
 
-Check the binary, mount and runtime settings:
+Close any interactive sessions in the existing agent before recreating it.
+After build:
 
 ```bash
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode --version
-bash scripts/compose.sh exec agent sh -c 'test -r /opt/isolated-agent/opencode-user.jsonc && test -d /root/.isolated-opencode'
+make recreate-agent   # apply new image/mounts; replaces the old agent container
+make up               # ensure filtered Squid internet egress is running
+make doctor
 ```
 
-Expected: V2 version and a successful file/state check. Custom model
-availability should be checked after authentication in step D. To inspect mounted paths and options
-without opening credentials:
+Using `make recreate-agent` **before** `make up` is intentional when
+switching installed agents: `make up` refuses to reuse an existing
+container with stale agent-state mounts.
+
+## E. Verify the active binaries and mounts
+
+```bash
+bash scripts/compose.sh exec agent \
+  /usr/local/bin/isolated-agent-opencode --version
+
+bash scripts/compose.sh exec agent sh -c \
+  'test -r /opt/isolated-agent/opencode-user.jsonc &&
+   test -w /root/.isolated-opencode'
+
+make agent
+```
+
+Expected: OpenCode 2.x version; state/config tests exit zero; `make agent`
+opens OpenCode, **not Codex**. The version is pinned in
+`dependencies/dependencies.toml`.
+
+For OpenCode-only (and no other Node dependencies), also check:
+
+```bash
+bash scripts/compose.sh exec agent sh -c \
+  '! command -v codex && ! command -v node && ! command -v npm'
+```
+
+If you explicitly added Node-based MCP dependencies or SDKs, expect
+`node`/`npm` to exist; that does not indicate OpenCode installed them.
+
+To inspect mounts *without printing key values*:
 
 ```bash
 podman inspect "$(bash scripts/service-id.sh agent)" --format '{{json .Mounts}}' | python3 -m json.tool
 ```
 
-Confirm that `/opt/isolated-agent/opencode-user.jsonc` is a **read-only
-bind** and `/workspace` is the intended source path. Never paste full
-credential or environment dumps into issues.
+Check: `/workspace` points to the intended source directory; the
+OpenCode user config mount is read-only; and with Codex disabled,
+there is **no** `/root/.codex` persistent mount.
 
-## D. Authenticate and make a real request
+## F. Authenticate with the existing ProxyAPI key
 
-```bash
-make agent
-```
+In the OpenCode TUI:
 
-In the TUI use `/connect` -> custom/Other -> `proxyapi` and enter the
-existing ProxyAPI key. Use `/models` to select `proxyapi/qwen-flash`.
-Exact menu wording depends on the CLI version.
+1. `/connect` → custom/Other → `proxyapi`; enter your **existing** API key.
+2. `/models` → `proxyapi/qwen-flash` (or the alias chosen in your config).
+3. Ask: "Прочитай README.md и кратко объясни его содержимое по-русски.
+   Ничего не изменяй."
 
-A quick non-interactive auth check (do **not** show token data):
+Exact TUI labels may vary between V2 patch releases.
 
-```bash
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode auth list
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode models proxyapi
-```
-
-Expected: authenticated provider `proxyapi` and your model alias listed.
-If `models proxyapi` shows no models before connecting, that is not by
-itself a failure; retry after `/connect`.
-
-Test a **real** model request (charges a small number of tokens):
+Exit the TUI and check without showing any token:
 
 ```bash
 bash scripts/compose.sh exec agent \
+  /usr/local/bin/isolated-agent-opencode auth list
+
+bash scripts/compose.sh exec agent \
   /usr/local/bin/isolated-agent-opencode run --model proxyapi/qwen-flash \
-  "Respond with a short greeting in Russian; do not edit files."
+  "Ответь одним предложением по-русски. Файлы не изменяй."
 ```
 
-Expected: a valid response and a corresponding usage entry in your
-ProxyAPI dashboard. If there is a 401/403 check that `proxyapi`, not
-`openai`, was authenticated. 404/model errors usually mean wrong model
-ID or unavailable model in the ProxyAPI account; 402 may mean insufficient
-balance. If the model answers but cannot use tools, use a model with
-verified tool-calling support.
+Expected: `proxyapi` appears as connected, a real model answer arrives,
+and the ProxyAPI dashboard records activity. A 401/403 is an authentication
+error; 404/model unavailable usually means the upstream model ID is wrong;
+402 may mean insufficient balance. Tool calling must be tested separately
+and depends on the specific model.
 
-Next, test the agent reading only the approved workspace:
+## G. Optional MCP + Go/Serena
 
-> Read README.md in this workspace and summarize it in Russian.
-> Do not change any files.
-
-If the scratch workspace has no README.md, create a harmless one on the host
-before this request.
-
-## E. MCP and Go checks (optional, only if installed)
-
-The OpenCode CLI works without Serena. With the default dependencies
-manifest, `make opencode-mcp` may show no MCP servers: **this is expected**.
-To test Serena, merge the Go SDK and Serena entries from
+You **do not** need Serena or Go to test the OpenCode CLI.
+To enable the full Go example, merge only the needed entries from
 `dependencies/examples/go-opencode-serena.toml` into your existing
-`dependencies/dependencies.toml`, **without** removing other project tools.
-Then repeat the `make deps-validate`, `make build`, `make recreate-agent`
-commands.
+`dependencies/dependencies.toml` (avoid losing other tools).
+
+Then:
 
 ```bash
+make deps-validate
+make build
+make recreate-agent
+make up
 make opencode-mcp
 make lsp-doctor
 ```
 
-Expected: Serena is listed as connected and the actual LSP probe
-works **when the workspace contains a supported source project**. A
-successful `mcp list` alone does not prove tool-call compatibility.
-Ask OpenCode to locate a Go function through Serena and run a non-destructive
-read-only analysis.
+`lsp-doctor` requires a workspace containing actual Go source files,
+not the scratch README-only project. `make opencode-mcp` should show
+Serena when enabled. A successful MCP list alone is not enough: ask
+the agent to use a Serena tool and observe an actual Go symbol lookup.
 
-## F. State persistence and network boundary
+If your MCP server needs Node, enable it separately in `[apt]` or that
+tool's own `[[agent_tools.install]]` section — the OpenCode CLI never
+forces this dependency.
 
-Exit the OpenCode TUI and run:
+## H. Session persistence, network checks and Codex switching
 
 ```bash
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode auth list
+bash scripts/compose.sh exec agent \
+  /usr/local/bin/isolated-agent-opencode auth list
+
 make recreate-agent
-bash scripts/compose.sh exec agent /usr/local/bin/isolated-agent-opencode auth list
+make up
+
+bash scripts/compose.sh exec agent \
+  /usr/local/bin/isolated-agent-opencode auth list
+
 make network-check
 ```
 
-Expected: `proxyapi` remains authenticated after recreation and
-`make network-check` passes in filtered-Web mode. For extra confidence,
-resume an actual saved OpenCode session using `make agent` and
-the CLI's continue/resume feature. Do not delete `volumes/` or run
-`make reset-state`.
+Expected: ProxyAPI authorization persists. Also confirm that the previous
+OpenCode session can be resumed. Never run `make reset-state` during
+smoke testing.
 
-Editing `config/opencode.jsonc` later requires **only a new OpenCode CLI
-process** to reload the provider settings; no container rebuild/recreation
-is necessary. Adding/removing agent tools or altering mounts *does* require
-a rebuild/recreate.
+For the **dual-agent** configuration, set `codex.enabled=true` and
+`opencode.enabled=true`, then rebuild/recreate once. From then on you can
+switch without rebuilding:
 
-## Troubleshooting / merge gate
+```bash
+make agent AGENT_RUNTIME=codex
+make agent AGENT_RUNTIME=opencode
+```
 
-- `make agent` runs Codex: check `AGENT_RUNTIME=opencode` in `.env`.
-- `OpenCode is not installed`: enable the tool in `dependencies.toml`,
-  rebuild, and recreate. `make ensure-images` does not rebuild existing images.
-- Missing config / symlink rejected: create a **regular file** by copying the
-  example; do not symlink secrets from arbitrary host paths.
-- `models proxyapi` shows nothing: check `OPENCODE_CONFIG`, custom provider
-  schema, the selected model, and `auth list`.
-- ProxyAPI requests fail: check `api.proxyapi.ru:443` via the configured
-  Squid egress. `make network-check` validates general network isolation,
-  not that this particular provider is reachable.
-- Project configuration unexpectedly overrides ProxyAPI: OpenCode project
-  config takes precedence over `OPENCODE_CONFIG`. Keep testing with a
-  project that does not provide conflicting OpenCode settings.
-- MCP fails: check whether Serena is enabled, whether its process starts,
-  the configured `--context=codex`, and the Go project/LSP prerequisites.
+If Codex is enabled and not yet authenticated, use `make login`.
+Codex Remote Control is Codex-specific and requires a running, installed
+Codex runtime; it is not an OpenCode server.
 
-**Do not merge this draft PR solely on the basis of static CI success.**
-The Debian host must confirm: OpenCode build, ProxyAPI real response,
-correct config mount, persistent auth/session, optional Serena MCP
-if enabled, and unchanged rootless network protections.
+## Acceptance and common errors
+
+- `make agent` starts the wrong CLI: inspect `AGENT_RUNTIME` in `.env`.
+- `disabled in [[agents]]`: enable that runtime; run `make build`,
+  `make recreate-agent`, `make up`.
+- `opencode not found`: verify build logs for native installer,
+  `install-opencode.sh` and selected agent flags. No Node/npm needed.
+- Missing local provider config: copy the example to
+  `config/opencode.jsonc`; symlinks are rejected.
+- Stale agent mounts error: stop active tasks and run `make recreate-agent`.
+- ProxyAPI unreachable: confirm Squid filtered egress allows
+  `https://api.proxyapi.ru/v1`; `make network-check` does not guarantee
+  that a specific provider endpoint works.
+- MCP missing: enable Serena separately under `[[agent_tools]]`, rebuild,
+  and verify the `mcp list` and actual tool calls.
+- Migrated Codex data must stay under the existing `CODEX_STATE_VOLUME`;
+  disabling Codex does **not** delete its data.
+
+Do **not** merge PR #11 based on static checks alone. Confirm the
+native installer, selected runtime, ProxyAPI response, persistent state,
+MCP when enabled, and the existing rootless network boundary locally.
