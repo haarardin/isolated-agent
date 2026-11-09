@@ -15,44 +15,22 @@ set -eu
 
 printf "PATH:            %s\n" "$PATH"
 
-command -v codex >/dev/null 2>&1 || {
-  printf "ERROR: codex is not available in container PATH\n" >&2
-  exit 1
-}
+# Enabled agents are declared by the generated image manifest.
+enabled=/opt/isolated-agent/agents-enabled.txt
+test -f "$enabled" || { echo "ERROR: missing enabled-agent manifest" >&2; exit 1; }
 
-if command -v go >/dev/null 2>&1; then
-  printf "Go:              "
-  go version
-else
-  printf "Go:              not installed (optional)\n"
-fi
-
-printf "Codex:           "
-codex --version
-
-# A bare copied codex executable supports --version/login but cannot
-# bootstrap the default managed app-server daemon (Codex >=0.157).
-cli_executable="$(readlink -f "$(command -v codex)")"
-package_root="$(dirname "$(dirname "$cli_executable")")"
-if [ ! -f "$package_root/codex-package.json" ] ||
-   [ ! -x "$package_root/bin/codex-code-mode-host" ]; then
-  printf "ERROR: incomplete Codex runtime package for managed daemon: %s\n" "$cli_executable" >&2
-  exit 1
-fi
-printf "Codex package:   complete (%s)\n" "$package_root"
-
-workspace="$(pwd -P)"
-if [ "$workspace" != "/workspace" ]; then
-  printf "ERROR: agent working directory is %s, expected /workspace\n" "$workspace" >&2
-  exit 1
-fi
-
-test -w /workspace || {
-  printf "ERROR: /workspace is not writable\n" >&2
-  exit 1
-}
-
-test -w /root/.codex || {
+if grep -Fxq codex "$enabled"; then
+  command -v codex >/dev/null 2>&1 || { echo "ERROR: enabled Codex missing" >&2; exit 1; }
+  printf "Codex:           "
+  codex --version
+  cli_executable="$(readlink -f "$(command -v codex)")"
+  package_root="$(dirname "$(dirname "$cli_executable")")"
+  if [ ! -f "$package_root/codex-package.json" ] ||
+     [ ! -x "$package_root/bin/codex-code-mode-host" ]; then
+    echo "ERROR: incomplete Codex managed runtime" >&2
+    exit 1
+  fi
+  test -w /root/.codex || {
   printf "ERROR: CODEX_HOME (/root/.codex) is not writable\n" >&2
   exit 1
 }
@@ -89,7 +67,7 @@ else
   printf "Serena project:   not initialized\n"
 fi
 
-printf "CODEX_HOME:       writable runtime state\n"
+if grep -Fxq codex "$enabled"; then printf "CODEX_HOME:       writable runtime state\n"; fi
 printf "Cache:            writable runtime state\n"
 printf "Root filesystem:  read-only\n"
 # Check the effective global LSP bindings, not merely installed executables.
