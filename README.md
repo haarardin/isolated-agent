@@ -796,12 +796,16 @@ twice without an intervening `make start` does not erase the checkpoint.
 services before the agent, and then clears the checkpoint after success.
 
 The operations do not create/remove containers, build images, change
-Compose profiles, networks or volumes. They verify the project labels
-and agent's workspace/Codex mounts before acting. If a saved container
-was removed/recreated externally or the project configuration now
-points to a different workspace, `make start` **fails rather than
-silently switching containers**. Inspect/resolve the stale checkpoint
-before a fresh `make up` or `make stop` cycle.
+Compose profiles, networks or volumes. They select **Compose-managed
+services of the configured COMPOSE_PROJECT_NAME** by project and service
+labels. Neither command inspects or validates the agent's workspace,
+Codex state or OpenCode state mounts. `make start` still verifies that
+every saved container ID exists and retains the same project/service
+labels before restarting anything. If an ID was removed/recreated
+externally, resolve the stale checkpoint before another lifecycle cycle.
+The checkpoint filename remains scoped to the current project key
+(which derives from COMPOSE_PROJECT_NAME and PROJECT_DIR), so run
+`make start` from the same checkout/settings used for `make stop`.
 
 `make start` is **not a substitute for initial `make up`** and is not
 an image-update command. Without a prior `make stop`, it will explain
