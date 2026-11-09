@@ -1,0 +1,37 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Optional: ONE ProxyAPI credential and ONE OpenAI-compatible endpoint.
+  // Model IDs below are examples from ProxyAPI's documentation; verify
+  // availability with your account and test tool calling for each model.
+  // Copy this example over config/opencode.jsonc if you want multiple models.
+  // Never put the API key into this file.
+  "model": "proxyapi/qwen-flash",
+  "providers": {
+    "proxyapi": {
+      "name": "ProxyAPI",
+      "env": ["PROXYAPI_API_KEY"],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://api.proxyapi.ru/v1"
+      },
+      "models": {
+        "qwen-flash": {
+          "name": "Qwen Flash (check model ID)",
+          "modelID": "qwen/qwen3.8-flash"
+        },
+        "gpt": {
+          "name": "GPT via ProxyAPI",
+          "modelID": "openai/gpt-5.5"
+        },
+        "claude": {
+          "name": "Claude via ProxyAPI (compatibility test)",
+          "modelID": "anthropic/claude-sonnet-4-6"
+        },
+        "gemini": {
+          "name": "Gemini via ProxyAPI (compatibility test)",
+          "modelID": "google/gemini-2.5-pro"
+        }
+      }
+    }
+  }
+}
