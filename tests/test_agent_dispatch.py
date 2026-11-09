@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import tomllib
 import tempfile
 import unittest
 from unittest import mock
@@ -61,9 +62,27 @@ class AgentDispatchTests(unittest.TestCase):
             self.assertEqual(agent.main(), 2)
             execute.assert_not_called()
 
-    def test_manifest_enabled_runtime_matches_default(self):
-        self.assertTrue(agent.enabled_runtime("codex"))
-        self.assertFalse(agent.enabled_runtime("opencode"))
+    def test_manifest_enabled_runtime_follows_enabled_flags(self):
+        # Test both settings without assuming the developer's checked-out
+        # dependencies.toml is still in the default Codex-only state.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dependencies = root / "dependencies"
+            dependencies.mkdir()
+            manifest = dependencies / "dependencies.toml"
+            for codex_enabled, opencode_enabled in (
+                (True, False), (False, True), (True, True), (False, False)
+            ):
+                with self.subTest(codex=codex_enabled, opencode=opencode_enabled):
+                    manifest.write_text(
+                        '[[agents]]\\nid = "codex"\\nenabled = ' +
+                        str(codex_enabled).lower() +
+                        '\\n[[agents]]\\nid = "opencode"\\nenabled = ' +
+                        str(opencode_enabled).lower() + '\\n'
+                    )
+                    with mock.patch.object(agent, "ROOT", root):
+                        self.assertEqual(agent.enabled_runtime("codex"), codex_enabled)
+                        self.assertEqual(agent.enabled_runtime("opencode"), opencode_enabled)
 
     def test_make_agent_dispatches_each_runtime_without_podman(self):
         with tempfile.TemporaryDirectory() as td:
@@ -74,22 +93,35 @@ class AgentDispatchTests(unittest.TestCase):
                    "PATH": td + os.pathsep + os.environ.get("PATH", ""),
                    "COMPOSE_PROJECT_NAME": "agent-dispatch-test",
                    "AGENT_NETWORK_NAME": "agent-dispatch-test_net"}
-            run = subprocess.run(
-                ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=codex"],
-                cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+            # Verify whichever agents are enabled in this checkout. The
+            # developer may run the suite with Codex-only, OpenCode-only,
+            # both, or both disabled; none should require editing tests.
+            config = tomllib.loads(
+                (ROOT / "dependencies/dependencies.toml").read_text()
             )
-            self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertEqual(run.stdout.splitlines(), ["exec", "agent", "codex"])
-
-            # The default manifest intentionally disables OpenCode. No old
-            # binary can be started until the agent is enabled in [[agents]].
-            disabled = subprocess.run(
-                ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=opencode"],
-                cwd=ROOT, env=env, capture_output=True, text=True, check=False,
-            )
-            self.assertNotEqual(disabled.returncode, 0)
-            self.assertIn("disabled in [[agents]]", disabled.stderr)
-            self.assertNotIn("exec", disabled.stdout)
+            enabled = {a["id"]: a["enabled"] for a in config["agents"]}
+            expected = {
+                "codex": "codex",
+                "opencode": "/usr/local/bin/isolated-agent-opencode",
+            }
+            for runtime, executable in expected.items():
+                with self.subTest(runtime=runtime, enabled=enabled[runtime]):
+                    result = subprocess.run(
+                        ["make", "--no-print-directory", "agent",
+                         f"AGENT_RUNTIME={runtime}"],
+                        cwd=ROOT, env=env, capture_output=True,
+                        text=True, check=False,
+                    )
+                    if enabled[runtime]:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(
+                            result.stdout.splitlines(),
+                            ["exec", "agent", executable],
+                        )
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("disabled in [[agents]]", result.stderr)
+                        self.assertNotIn("exec", result.stdout)
 
             bad = subprocess.run(
                 ["make", "--no-print-directory", "agent", "AGENT_RUNTIME=codex;id"],
