@@ -4,7 +4,10 @@ Both coding runtimes are **optional, independently installed** in the same
 rootless Podman environment. The `[[agents]]` entries in
 `dependencies/dependencies.toml` decide **what is installed**. The
 `AGENT_RUNTIME` setting in the checkout's gitignored `.env` decides
-**which installed CLI `make agent` launches**.
+**which installed CLI `make agent` launches by default**. A positional
+runtime goal (`make agent codex`, `make agent opencode`) temporarily
+overrides that default without modifying `.env`. It is validated against
+`config/agent-runtimes.json` and must also be enabled in `[[agents]]`.
 
 The default remains **Codex enabled / OpenCode disabled** for backwards
 compatibility. This PR does not implicitly remove existing Codex
@@ -149,13 +152,20 @@ make build
 make recreate-agent  # stop old sessions first; updates image and mounts
 make up              # start/confirm Squid filtered egress
 make doctor
-make agent           # dispatches selected AGENT_RUNTIME
+make agent           # dispatches selected AGENT_RUNTIME from .env
+make agent opencode  # temporarily select OpenCode even if .env says codex
+make agent codex     # temporarily select Codex even if .env says opencode
 ```
 
 `make login` and Codex Remote Control only apply to **installed Codex**;
 `make opencode`, `make opencode-mcp` and `make opencode-serve` only apply
 to **installed OpenCode**. Direct commands remain available for
-compatibility; `make agent` is the default entry point.
+compatibility; `make agent` is the default entry point. With both agents
+installed, switching their active CLI via `make agent <runtime>` requires
+no rebuild, no container recreation and no `.env` changes. Registered
+future agent IDs use the same positional syntax. The positional goal
+must follow `agent` and only one may be given; unknown or disabled
+runtime IDs are rejected.
 
 Headless read-only model test:
 
