@@ -1,4 +1,4 @@
-# Universal dependencies for Debian 13 + Codex; no default language SDK.
+# Universal dependencies on Debian 13; coding runtimes are optional [[agents]].
 [base]
 image = "debian:13-slim"
 
@@ -34,7 +34,8 @@ packages = []
 
 # AI coding runtimes are first-class, independently enabled agents.
 # AGENT_RUNTIME in .env only selects which ALREADY ENABLED agent runs.
-# Disabling Codex prevents its download/install; disabling OpenCode prevents npm.
+# Disabling either agent omits its CLI installation and runtime mount.
+# OpenCode's native shell installer needs NO Node.js/npm.
 [[agents]]
 id = "codex"
 enabled = true
