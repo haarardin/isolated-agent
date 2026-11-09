@@ -18,7 +18,7 @@ Host Linux
 └── isolated Compose network           │
        │                               │
        ├── agent                       │
-       │    ├── Codex / OpenCode CLI (enabled agents) │
+       │    ├── Codex / OpenCode CLI (when enabled) │
        │    ├── Optional SDKs         │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
