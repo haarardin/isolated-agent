@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import importlib.util
 from pathlib import Path
 import re
 import sys
@@ -42,6 +43,18 @@ def main(argv: list[str] | None = None) -> int:
     try:
         command = select_agent(runtime)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    # Runtime registration is not installation. Reject disabled agents before
+    # asking Podman to execute any command (even if a stale CLI still exists).
+    spec = importlib.util.spec_from_file_location("agent_dependencies", ROOT / "scripts/dependencies.py")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        config = module.parse()
+        if not module.agent_enabled(config, runtime):
+            raise ValueError(f"agent {runtime!r} is disabled in [[agents]]; enable and rebuild")
+    except (ValueError, OSError, RuntimeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     # execvp replaces this process and preserves terminal signal handling.
