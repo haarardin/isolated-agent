@@ -267,6 +267,11 @@ Codex runtime; it is not an OpenCode server.
   `make recreate-agent`, `make up`.
 - `opencode not found`: verify build logs for native installer,
   `install-opencode.sh` and selected agent flags. No Node/npm needed.
+- Installer displays `opencode v2.0.0`: this is the normal output of the
+  pinned V2 CLI. The build validates this full version banner (and also
+  accepts `2.0.0`/`v2.0.0`); a different version still fails. If an older
+  checkout rejected the banner, pull the PR branch and rerun `make build`.
+  Podman can reuse successfully cached earlier build layers.
 - Missing local provider config: copy the example to
   `config/opencode.jsonc`; symlinks are rejected.
 - Stale agent mounts error: stop active tasks and run `make recreate-agent`.
