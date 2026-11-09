@@ -299,8 +299,8 @@ install arbitrary new scripts or recompile an existing image.
 
 ### Resume an existing Compose deployment
 
-`make stop` finds all running/paused containers with either compatible
-Compose project label matching `COMPOSE_PROJECT_NAME` (agent, Squid, optional
+`make stop` finds all running/paused Compose-managed services whose
+project label matches `COMPOSE_PROJECT_NAME` (agent, Squid, optional
 PostgreSQL/Redis and sidecars), stores their IDs and original states in
 `.state/lifecycle-<project-key>.json`, then gracefully stops them.
 `make start` resumes exactly that set of containers, using `podman start`
@@ -311,9 +311,12 @@ These targets apply to whichever Compose services were **previously created**,
 including the extra example and agent tool profiles; `make stop` does not
 implicitly initialize an unset profile. Container service dependencies
 start before the agent. The checkpoint is scoped to the same project-key
-used by Codex state, and project labels/mounts are checked again before
-starting. If IDs no longer exist or mount configuration changed, `make start`
-fails safely. Repeated `make stop` without a start does not erase recovery
+used by Codex state. `make start` checks the saved container IDs and
+project/service labels before starting; neither `make stop` nor
+`make start` verifies workspace or agent-state mounts. Container
+creation/recreation remains responsible for those checks. If a saved ID
+was replaced or relabeled, `make start` fails without restarting other
+services. Repeated `make stop` without a start does not erase recovery
 data; successful `make start` clears the checkpoint.
 
 `make up`/`make up-example` remain the provisioning/updating commands
