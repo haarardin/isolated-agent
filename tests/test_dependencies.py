@@ -30,7 +30,7 @@ class DependencyTests(unittest.TestCase):
             # Codex is enabled by default, so its persistent state is
             # mounted through the generated [[agents]] Compose overlay.
             compose = (out / "compose.tools.yaml").read_text()
-            self.assertIn("services:\\n  agent:\\n    volumes:\\n", compose)
+            self.assertIn("services:\n  agent:\n    volumes:\n", compose)
             self.assertIn("target: /root/.codex", compose)
             self.assertIn("source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}", compose)
             self.assertNotIn("/root/.isolated-opencode", compose)
@@ -178,7 +178,7 @@ command = "/opt/serena/bin/serena"
             self.assertIn("/root/.serena:rw", compose)
             # The generated overlay also includes the default Codex state.
             # Avoid brittle line-count checks; verify expected mount entries.
-            self.assertEqual(compose.count("  agent:\\n"), 1)
+            self.assertEqual(compose.count("  agent:\n"), 1)
             self.assertEqual(compose.count("target: /root/.codex"), 1)
             self.assertEqual(compose.count("/root/.serena:rw"), 1)
             self.assertNotIn("/root/.isolated-opencode", compose)
