@@ -64,6 +64,13 @@ then use **`make agent`** to launch the selected CLI. The dispatcher reads
 changing the Make target. Selecting OpenCode does not install it automatically:
 enable its optional Agent Tool and rebuild first (see [OpenCode setup](docs/opencode.md)).
 
+OpenCode provider/model configuration does **not** belong in `PROJECT_DIR`.
+Copy `config/opencode.example.jsonc` to gitignored `config/opencode.jsonc`
+inside the `isolated-agent` checkout. When OpenCode is enabled, this local
+file is mounted **read-only** and loaded via `OPENCODE_CONFIG`; its API keys
+are entered via `/connect` and stored in the existing persistent agent state.
+
+
 ## Persistent Codex and optional Agent Tool state
 
 The default Codex home, including auth, SQLite memories and session
