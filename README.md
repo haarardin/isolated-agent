@@ -736,7 +736,7 @@ make doctor
 This verifies the effective runtime environment inside the agent container:
 
 - Go is present in `PATH`;
-- Codex is present in `PATH`;
+- Every enabled agent is present in `PATH`, and disabled agents are not installed;
 - `/workspace`, `CODEX_HOME`, and the build cache are writable;
 - the container root filesystem remains read-only.
 
