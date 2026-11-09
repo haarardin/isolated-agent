@@ -10,6 +10,24 @@ agent** with the same /workspace and installed MCP toolchain.
 
 In `dependencies/dependencies.toml`, change `enabled = false` to `true`
 **only** for `id = "opencode"`. Set `AGENT_RUNTIME=opencode` in `.env`.
+Keep provider/model settings OUTSIDE the source workspace: they belong to
+this `isolated-agent` checkout, not the Go/CAD/etc project.
+
+```bash
+umask 077
+cp config/opencode.example.jsonc config/opencode.jsonc
+# edit config/opencode.jsonc to select your models / provider
+```
+
+`config/opencode.jsonc` is gitignored and is mounted read-only at
+`/opt/isolated-agent/opencode-user.jsonc` inside the container. The launcher
+sets `OPENCODE_CONFIG` to that path. **The file is not baked into any image,
+not copied into the workspace, and not exposed to the Codex CLI.**
+Neither the optional CLI nor this config requires a project-level
+`PROJECT_DIR/opencode.jsonc`; do not create one. The project itself can
+still supply a higher-precedence project config, so inspect that if behavior
+seems overridden.
+
 This selects the OpenCode CLI when running `make agent`. This installs pinned
 `@opencode/cli@2.0.0` via npm in the Dependencies image. It does NOT remove
 Codex or convert its auth. An image rebuild/recreate is necessary:
@@ -23,9 +41,20 @@ make agent
 make opencode-mcp
 ```
 
-Configure an OpenCode LLM provider using its own supported authentication
-mechanism. ChatGPT/Codex credentials are not implicitly reusable; never
-commit provider secrets to the source repository or bake them into images.
+The checked-in example uses **ProxyAPI** as an OpenAI-compatible custom
+provider; it only declares the endpoint and an illustrative model ID.
+Confirm the exact model ID supported by your ProxyAPI account and adjust it.
+After `make agent`, use `/connect` → `Other` → `proxyapi` to enter the
+existing ProxyAPI key, then `/models` to select the model. The example also
+allows `PROXYAPI_API_KEY` as an optional environment variable, but does not
+put any secret in the JSON file. Avoid storing keys in `.env`, image build
+args or the checked-in example. ChatGPT/Codex credentials are not reusable
+implicitly.
+
+To change provider/model configuration, edit the local file and start a
+**new OpenCode process** (`make agent`); no image rebuild or Compose
+recreation is required. Switching between projects reuses the local config
+while each project's OpenCode state remains independently scoped.
 
 Changing `AGENT_RUNTIME` only changes which existing CLI is launched.
 It does not install an agent. To add a new runtime later, install its CLI
@@ -59,6 +88,12 @@ session/event mapping are separate follow-ups.
   is based on `COMPOSE_PROJECT_NAME` and canonical `PROJECT_DIR`.
 - The `isolated-agent-opencode` wrapper redirects XDG config/data/state
   to the above mount. Its cache uses existing `/root/.cache`.
+- The only extra agent bind for the provider configuration is the single
+  read-only `config/opencode.jsonc` file from the isolated-agent checkout.
+  `make up`/state-preparation fail with a helpful message if this file is
+  missing or a symlink. It is deliberately not a bind to the repository
+  directory. Credentials entered via `/connect` go into persistent XDG
+  state, not the config example.
 - `.generated/opencode-mcp.json` is generated from the **same** enabled
   `agent_tools` MCP entries as Codex and copied to the V2 system path
   `/etc/opencode/opencode.json`. V2 requires `mcp.servers`; V1's
