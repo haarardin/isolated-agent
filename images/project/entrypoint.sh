@@ -15,8 +15,8 @@ if grep -Fxq codex /opt/isolated-agent/agents-enabled.txt; then
   fi
 
   # Seed the full official managed runtime only when Codex is installed.
-  if [[ ! -x "$CODEX_HOME/packages/standalone/current/codex" &&
-        -x /opt/isolated-agent/codex-standalone/current/codex ]]; then
+  if [[ ! -x "$CODEX_HOME/packages/standalone/current/bin/codex" &&
+        -x /opt/isolated-agent/codex-standalone/current/bin/codex ]]; then
     mkdir -p "$CODEX_HOME/packages/standalone"
     cp -a /opt/isolated-agent/codex-standalone/. "$CODEX_HOME/packages/standalone/"
   fi
