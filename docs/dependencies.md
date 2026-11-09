@@ -90,7 +90,6 @@ enabled = false
 [[agents.install]]
 type = "script"
 file = "install-opencode.sh"
-args = ["2.0.0"]
 verify = ["opencode --version"]
 
 [agents.state]
@@ -100,8 +99,9 @@ target = "/root/.isolated-opencode"
 
 The Codex installer downloads the official **complete standalone runtime**
 including managed daemon support. The OpenCode V2 installer fetches a
-version-pinned **native executable with a shell installer**, **without
-Node.js/npm**. Install `nodejs`/`npm` separately under `[apt]`,
+**latest available native CLI** using the official shell installer,
+**without a version argument or Node.js/npm**. The version check only
+verifies that `opencode --version` runs; it does not compare numbers. Install `nodejs`/`npm` separately under `[apt]`,
 `[[install]]` or `[[agent_tools.install]]` only when needed by an MCP
 server, a Node-based project or another tool.
 
@@ -111,6 +111,11 @@ migration). When disabled, neither this state nor the Codex CLI is mounted
 or installed. OpenCode uses its own project-keyed persistent volume under
 `./volumes/opencode`, and its read-only custom provider config is supplied
 from gitignored `config/opencode.jsonc` outside `PROJECT_DIR`.
+
+Podman can reuse an existing installation layer on repeated builds;
+"latest" describes fresh installer execution, not an automatic update on
+every invocation of `make build`. The explicit cache-free refresh command
+is documented in [OpenCode runtime setup](opencode.md).
 
 Changing either `enabled` value requires `make build`, then
 `make recreate-agent` (after closing active sessions), and `make up` for
