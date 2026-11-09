@@ -124,7 +124,7 @@ def validate_state_target(target, owner, seen):
 
 def parse(path=CONFIG):
     data = tomllib.loads(path.read_text())
-    if set(data) - {"base", "apt", "install", "agent_tools", "project"}:
+    if set(data) - {"base", "apt", "install", "agents", "agent_tools", "project"}:
         err("Unknown top-level sections")
     if data.get("base", {}).get("image", "debian:13-slim") not in ("debian:13-slim", "docker.io/library/debian:13-slim"):
         err("This release supports Debian 13 slim only")
@@ -139,6 +139,51 @@ def parse(path=CONFIG):
         check_step(step, "install[" + str(i) + "]")
     seen = set()
     state_targets = {}
+    agents = data.get("agents", [])
+    if not isinstance(agents, list):
+        err("agents must be an array")
+    registered = json.loads((ROOT / "config/agent-runtimes.json").read_text())
+    for agent in agents:
+        if not isinstance(agent, dict):
+            err("agents entries must be tables")
+        aid = agent.get("id")
+        if not isinstance(aid, str) or not IDENT.fullmatch(aid) or aid in seen:
+            err("Invalid/duplicate agent id: " + str(aid))
+        if aid not in registered:
+            err(aid + ": not registered in config/agent-runtimes.json")
+        seen.add(aid)
+        if set(agent) - {"id", "enabled", "install", "state"}:
+            err(aid + ": unknown agent fields")
+        if not isinstance(agent.get("enabled"), bool):
+            err(aid + ": enabled must be explicitly true/false")
+        steps_list = agent.get("install", [])
+        if not isinstance(steps_list, list) or not steps_list:
+            err(aid + ": requires installation steps")
+        for i, step in enumerate(steps_list):
+            check_step(step, aid + ".install[" + str(i) + "]")
+        state = agent.get("state")
+        if not isinstance(state, dict) or set(state) != {"base", "target"}:
+            err(aid + ": requires state.base and state.target")
+        base, target = state["base"], state["target"]
+        if (not isinstance(base, str) or not
+                (base.startswith("./volumes/") or base.startswith("volumes/"))
+                or ".." in Path(base).parts):
+            err(aid + ": state base must be under repository volumes/")
+        if (not isinstance(target, str) or not target.startswith("/")
+                or target != posixpath.normpath(target) or target == "/"
+                or ".." in PurePosixPath(target).parts):
+            err(aid + ": invalid agent state target")
+        # Keep existing Codex volume migration semantics. Other agents use
+        # generic per-project mounted state and cannot overlap Codex mounts.
+        if aid == "codex" and target != "/root/.codex":
+            err("codex: state target must be /root/.codex")
+        if aid == "opencode" and target != "/root/.isolated-opencode":
+            err("opencode: state target must be /root/.isolated-opencode")
+        if agent["enabled"]:
+            if aid == "codex":
+                state_targets[target] = aid
+            else:
+                validate_state_target(target, aid, state_targets)
     tools = data.get("agent_tools", [])
     if not isinstance(tools, list):
         err("agent_tools must be an array")
@@ -339,7 +384,11 @@ def prepare_tool_state(data):
     if any(t["id"] == "opencode" for t in enabled(data)):
         verify_opencode_user_config()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "isolated-agent-demo")
-    for tool in enabled(data):
+    for tool in [*enabled_agents(data), *enabled(data)]:
+        # Codex still uses the existing CODEX_STATE_VOLUME host preparation:
+        # this supports legacy named volumes without changing history/auth.
+        if tool["id"] == "codex" and tool in enabled_agents(data):
+            continue
         path = state_dir(tool, project_name)
         if path is None:
             continue
@@ -351,17 +400,29 @@ def prepare_tool_state(data):
         print("Tool state ready:", tool["id"], path)
 
 
+def enabled_agents(data):
+    return [a for a in data.get("agents", []) if a["enabled"]]
+
+
+def agent_enabled(data, agent_id):
+    return any(a["id"] == agent_id and a["enabled"] for a in data.get("agents", []))
+
+
 def enabled(data):
+    # Supporting tools (MCP, sidecars) remain separate from coding runtimes.
     return [t for t in data.get("agent_tools", []) if t.get("enabled", True)]
 
 
 def generate(data, folder=OUT):
     folder.mkdir(parents=True, exist_ok=True)
     lines = ["# Generated file: no manual changes.",
-             "ARG CODEX_IMAGE=localhost/isolated-agent-codex:dev",
-             "FROM " + "$" + "{CODEX_IMAGE}", "WORKDIR /workspace"]
+             "ARG BASE_IMAGE=localhost/isolated-agent-base:dev",
+             "FROM " + "$" + "{BASE_IMAGE}", "WORKDIR /workspace"]
     steps(lines, [{"type": "apt", "packages": data.get("apt", {}).get("packages", [])}])
     steps(lines, data.get("install", []))
+    for agent in enabled_agents(data):
+        lines.append("# Enabled coding agent: " + agent["id"])
+        steps(lines, agent.get("install", []))
     for tool in enabled(data):
         if tool["placement"] == "embedded":
             lines.append("# Embedded tool: " + tool["id"])
@@ -372,16 +433,24 @@ def generate(data, folder=OUT):
         err("Unsafe Compose project name for MCP DNS")
     sidecars = []
     compose = ["# Generated sidecar overlay", "services:"]
-    agent_states = [(t, state_dir(t, project_name)) for t in enabled(data) if t["placement"] == "embedded" and t.get("state")]
-    if agent_states:
+    agent_states = [(t, state_dir(t, project_name)) for t in
+                    [*enabled_agents(data), *enabled(data)]
+                    if t.get("state") and (t.get("placement", "embedded") == "embedded")
+                    and t["id"] != "codex"]
+    if agent_enabled(data, "codex") or agent_states:
         compose += ["  agent:", "    volumes:"]
+        if agent_enabled(data, "codex"):
+            compose += ["      - type: ${CODEX_STATE_MOUNT_TYPE:-bind}",
+                        "        source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}",
+                        "        target: /root/.codex",
+                        "        read_only: false"]
         for t, path in agent_states:
             compose.append("      - " + json.dumps(str(path) + ":" + t["state"]["target"] + ":rw"))
     # The provider config stays in the isolated-agent checkout, not /workspace
     # or the immutable image. A single read-only file is the only extra bind.
     # Do not check the file at generation/build time: the developer creates it
     # before `make up` and prepare_tool_state verifies it is a regular file.
-    if any(t["id"] == "opencode" and t["placement"] == "embedded" for t in enabled(data)):
+    if agent_enabled(data, "opencode"):
         compose.append("      - " + json.dumps(
             str(opencode_user_config()) + ":/opt/isolated-agent/opencode-user.jsonc:ro"))
     mcp = ["# Generated MCP configuration"]
@@ -425,6 +494,8 @@ def generate(data, folder=OUT):
     # V2 expects mcp.servers, not the V1 flat mcp.<name> layout.
     opencode = {"$schema": "https://opencode.ai/config.json", "mcp": {"servers": opencode_servers}}
     (folder / "opencode-mcp.json").write_text(json.dumps(opencode, indent=2, sort_keys=True) + "\n")
+    (folder / "agents-enabled.txt").write_text(
+        "".join(agent["id"] + "\n" for agent in enabled_agents(data)))
     # Consumer adapters are explicit. An empty file is a no-op at runtime.
     lsp_bindings = []
     for tool in enabled(data):
@@ -443,7 +514,7 @@ def generate(data, folder=OUT):
     (folder / "tool-lsp.json").write_text(json.dumps(lsp_bindings, indent=2, sort_keys=True) + "\n")
     (folder / "project-commands.json").write_text(json.dumps(data.get("project", {}), indent=2) + "\n")
     digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode())
-    for step in data.get("install", []) + [s for t in enabled(data) for s in t.get("install", [])]:
+    for step in data.get("install", []) + [s for t in [*enabled_agents(data), *enabled(data)] for s in t.get("install", [])]:
         if step["type"] in ("script", "deb", "archive"):
             digest.update(file_path(step["file"], "scripts" if step["type"] == "script" else "packages").read_bytes())
         for resource in step.get("files", []):
@@ -455,7 +526,7 @@ def generate(data, folder=OUT):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command", "sidecar-services", "tool-state"))
+    parser.add_argument("action", choices=("validate", "plan", "generate", "build", "project-command", "sidecar-services", "tool-state", "agent-enabled", "require-agent"))
     parser.add_argument("--config", type=Path, default=CONFIG)
     parser.add_argument("--engine", default="podman")
     parser.add_argument("--base-image", default="localhost/isolated-agent-base:dev")
@@ -465,6 +536,16 @@ def main():
     args = parser.parse_args()
     try:
         data = parse(args.config)
+        if args.action in ("agent-enabled", "require-agent"):
+            if not args.name or args.name not in {a["id"] for a in data.get("agents", [])}:
+                err("Unknown agent: " + args.name)
+            yes = agent_enabled(data, args.name)
+            if args.action == "agent-enabled":
+                print("true" if yes else "false")
+                return 0
+            if not yes:
+                err("Agent " + args.name + " is disabled; enable it in [[agents]] and rebuild")
+            return 0
         if args.action == "validate":
             print("Dependencies config valid")
             for warning in lsp_configuration_warnings(data):
@@ -490,7 +571,7 @@ def main():
         if args.action != "build":
             return 0
         subprocess.run([args.engine, "build", "-f", str(OUT / "Containerfile.dependencies"),
-                        "--build-arg", "CODEX_IMAGE=" + args.codex_image, "-t",
+                        "--build-arg", "BASE_IMAGE=" + args.base_image, "-t",
                         args.deps_image, "."], cwd=ROOT, check=True)
         for name in summary["sidecars"]:
             subprocess.run([args.engine, "build", "-f", str(OUT / ("Containerfile.tool-" + name)),
