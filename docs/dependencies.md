@@ -57,8 +57,10 @@ files; always use trusted distribution packages and verify their checksums.
 Installing arbitrary scripts, apt post-install scripts and .deb packages
 executes untrusted instructions as image-root: REVIEW them before enabling.
 Do not put secrets in build arguments, shell commands or copied files.
-Rootless Podman is the intended builder. For reproducibility pin versions,
-download artifact checksums and base image digest (when released).
+Rootless Podman is the intended builder. Pin dependency versions and verify
+checksums/digests where reproducibility matters. **OpenCode intentionally
+uses the latest upstream release** when its installer actually executes;
+that agent currently has no version-pinning feature.
 
 ## Independently installed coding agents: [[agents]]
 
@@ -133,12 +135,15 @@ optional repeated [[agent_tools.install]], and integration/runtime.
 **Do not declare Codex or OpenCode here** — they belong in [[agents]].
 
 - embedded + CLI: installed in agent image and used via PATH/shell.
-- embedded + MCP stdio: Codex launches the executable as a child process
-  on demand from generated [mcp_servers.<id>] in /etc/codex/config.toml.
+- embedded + MCP stdio: enabled Codex and/or OpenCode can each launch the
+  shared executable as an MCP child process. Registration is generated in
+  `/etc/codex/config.toml` and `/etc/opencode/opencode.json`.
 - sidecar + MCP HTTP: a separate generated image built on plain Debian
-  Base (NO Codex auth), connected to internal bridge; Codex gets an HTTP
-  MCP URL and unique per-COMPOSE_PROJECT_NAME DNS alias.
-- external + MCP HTTPS: only a Codex URL registration; no local image.
+  Base (without agent credentials), connected to the internal bridge;
+  each enabled MCP client receives the internal HTTP URL and the sidecar's
+  project-qualified DNS alias.
+- external + MCP HTTPS: a URL registration for each enabled MCP client,
+  with no locally installed executable or image.
 
 Embedded tools and sidecars may optionally declare the same generic state
 block, without any special Serena logic:
@@ -273,9 +278,15 @@ merely testing whether clangd is on PATH.
 1. Edit dependencies/dependencies.toml (copy individual entries from examples).
 2. Run make deps-validate and make deps-plan.
 3. Run make build (or make build-project if the Base image already exists).
-4. Run make up (first-time creation) and make doctor; make remote-start if needed.
-   On later restarts after make stop, use make start instead of make up.
-5. Check codex mcp list from agent shell.
+4. For a new deployment use `make up`; after changing an existing image,
+   close agent sessions, run `make recreate-agent`, then `make up`.
+   Run `make doctor`; `make remote-start` is Codex-only and requires
+   Codex enabled. For a previously `make stop`ped deployment, use
+   `make start` instead of `make up`.
+5. Check the active client's MCP registration: `make opencode-mcp` for
+   enabled OpenCode, or `make agent AGENT_RUNTIME=codex` and inspect MCP
+   tools in Codex when enabled. Test an actual Serena tool call in the
+   workspace, not just a listed server name.
 
 `make deps-build` rebuilds Dependencies and enabled sidecar images.
 `make deps-tools-up` starts only enabled sidecars. Before provisioning,
@@ -289,8 +300,8 @@ Agent Tools overlay. `make offline` starts enabled internal sidecars before the 
 `make offline-example`
 starts the overlay together with PostgreSQL/Redis. No Squid or
 direct outbound route is attached to offline agents/sidecars.
-`make recreate-agent` replaces only the agent, retaining persistent
-CODEX_HOME and Serena data. `make start` intentionally does **not**
+`make recreate-agent` replaces only the agent, retaining enabled Codex
+and/or OpenCode persistent state and Serena data. `make start` intentionally does **not**
 reconcile tools: it restores only previously saved containers.
 
 IMPORTANT: Changing dependencies currently requires a deliberate rebuild
@@ -328,7 +339,7 @@ Stopping/restarting preserves bind-mounted Codex/Serena data, the workspace,
 PostgreSQL named volume, and the writable layer of each existing container.
 It **does not preserve running processes or RAM**. In particular the example
 Redis has both RDB saves and AOF disabled and loses volatile keys after stop.
-Close active Codex sessions before calling `make stop`.
+Close active Codex/OpenCode sessions before calling `make stop`.
 
 
 
