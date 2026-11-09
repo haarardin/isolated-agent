@@ -27,7 +27,13 @@ class DependencyTests(unittest.TestCase):
             self.assertNotIn("install-opencode.sh", image)
             self.assertNotIn("go install", image)
             self.assertEqual(manifest["sidecars"], [])
-            self.assertIn("services: {}", (out / "compose.tools.yaml").read_text())
+            # Codex is enabled by default, so its persistent state is
+            # mounted through the generated [[agents]] Compose overlay.
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("services:\\n  agent:\\n    volumes:\\n", compose)
+            self.assertIn("target: /root/.codex", compose)
+            self.assertIn("source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}", compose)
+            self.assertNotIn("/root/.isolated-opencode", compose)
             self.assertEqual(tomllib.loads((out / "codex-mcp.toml").read_text()), {})
             self.assertEqual(json.loads((out / "opencode-mcp.json").read_text()),
                              {"$schema": "https://opencode.ai/config.json", "mcp": {"servers": {}}})
@@ -170,7 +176,12 @@ command = "/opt/serena/bin/serena"
             compose = (out / "compose.tools.yaml").read_text()
             self.assertIn("services:\n  agent:\n    volumes:\n", compose)
             self.assertIn("/root/.serena:rw", compose)
-            self.assertEqual(len(compose.splitlines()), 5)
+            # The generated overlay also includes the default Codex state.
+            # Avoid brittle line-count checks; verify expected mount entries.
+            self.assertEqual(compose.count("  agent:\\n"), 1)
+            self.assertEqual(compose.count("target: /root/.codex"), 1)
+            self.assertEqual(compose.count("/root/.serena:rw"), 1)
+            self.assertNotIn("/root/.isolated-opencode", compose)
             self.assertNotIn("{} ", compose)
             self.assertTrue(compose.endswith(":rw\"\n"))
 
@@ -351,6 +362,7 @@ url="http://unsafe.example/mcp"
             self.assertNotIn("install-opencode.sh", image)
             self.assertNotIn("/root/.codex", compose)
             self.assertNotIn("/root/.isolated-opencode", compose)
+            self.assertIn("services: {}", compose)
             self.assertEqual((out / "agents-enabled.txt").read_text(), "")
 
     def test_only_opencode_installed_without_codex(self):
