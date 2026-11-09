@@ -346,8 +346,8 @@ codex:
 	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex
 
-# The optional OpenCode V2 CLI is installed with the generic Agent Tools
-# manifest. Do not publish the agent API as a host port.
+# The OpenCode V2 CLI is installed only when enabled under [[agents]].
+# Do not publish the agent API as a host port.
 opencode:
 	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
