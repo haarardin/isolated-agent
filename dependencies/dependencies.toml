@@ -32,28 +32,43 @@ packages = []
 # type = "command"
 # run = "echo 'custom trusted command'"
 
-# Optional generic Agent Tools: see dependencies/examples/go-serena.toml
-# OpenCode V2 is OFF by default. Set enabled = true to install alongside Codex.
-[[agent_tools]]
+# AI coding runtimes are first-class, independently enabled agents.
+# AGENT_RUNTIME in .env only selects which ALREADY ENABLED agent runs.
+# Disabling Codex prevents its download/install; disabling OpenCode prevents npm.
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+# The host's CODEX_STATE_VOLUME and legacy named-volume options remain
+# authoritative for this target to preserve existing Codex sessions.
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
+[[agents]]
 id = "opencode"
-kind = "cli"
-placement = "embedded"
 enabled = false
 
-[[agent_tools.install]]
+[[agents.install]]
 type = "apt"
 packages = ["nodejs", "npm"]
 
-[[agent_tools.install]]
+[[agents.install]]
 type = "command"
 run = "npm install --global --no-audit --no-fund @opencode/cli@2.0.0"
 verify = ["opencode --version"]
 
-# Full XDG settings/data/state live in one project-scoped mount. Cache uses
-# the existing /root/.cache Compose volume.
-[agent_tools.state]
+[agents.state]
 base = "./volumes/opencode"
 target = "/root/.isolated-opencode"
+
+# Optional MCP / supporting tools are configured separately as [[agent_tools]].
+# See dependencies/examples/go-opencode-serena.toml for Serena + Go.
 
 [project]
 # test = "go test ./..."
