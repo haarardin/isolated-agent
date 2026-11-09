@@ -1,6 +1,20 @@
 # Optional example: Go SDK + OpenCode V2 + Serena MCP in one agent image.
 # This is a REFERENCE, not a drop-in replacement for your existing customized
 # dependencies/dependencies.toml. Merge entries deliberately and rebuild.
+# The coding runtime is installed ONLY when enabled in [[agents]].
+[[agents]]
+id = "codex"
+enabled = false
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
 [base]
 image = "debian:13-slim"
 
@@ -14,22 +28,20 @@ file = "install-go.sh"
 args = ["1.27.0"]
 verify = ["go version"]
 
-[[agent_tools]]
+[[agents]]
 id = "opencode"
-kind = "cli"
-placement = "embedded"
 enabled = true
 
-[[agent_tools.install]]
+[[agents.install]]
 type = "apt"
 packages = ["nodejs", "npm"]
 
-[[agent_tools.install]]
+[[agents.install]]
 type = "command"
 run = "npm install --global --no-audit --no-fund @opencode/cli@2.0.0"
 verify = ["opencode --version"]
 
-[agent_tools.state]
+[agents.state]
 base = "./volumes/opencode"
 target = "/root/.isolated-opencode"
 
