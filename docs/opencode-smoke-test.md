@@ -265,6 +265,28 @@ Expected: ProxyAPI authorization persists. Also confirm that the previous
 OpenCode session can be resumed. Never run `make reset-state` during
 smoke testing.
 
+### Existing-container stop/start round trip
+
+After leaving the OpenCode TUI and saving any in-progress work:
+
+```bash
+make stop
+podman ps                  # this Compose project's agent/Squid should be stopped
+make start
+make doctor
+make opencode-mcp
+```
+
+`make stop` records only already-running/paused Compose-managed services
+of the selected `COMPOSE_PROJECT_NAME`, and `make start` restarts those
+same container IDs, preserving previously stopped services. These commands
+**do not verify PROJECT_DIR or Codex/OpenCode state mounts**, rebuild images,
+or reconcile new dependencies; use `make build` / `make recreate-agent`
+/ `make up` for configuration changes. The saved checkpoint is keyed by
+the project identity, so run `make start` with the same project settings.
+For this OpenCode-only test, neither command should require a
+`/root/.codex` mount.
+
 For the **dual-agent** configuration, set `codex.enabled=true` and
 `opencode.enabled=true`, then rebuild/recreate once. From then on you can
 switch without rebuilding:
