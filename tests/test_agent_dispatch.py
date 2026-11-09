@@ -100,9 +100,11 @@ class AgentDispatchTests(unittest.TestCase):
             (checkout / "dependencies").mkdir()
             (checkout / "workspace").mkdir()
             (checkout / ".env").write_text(
-                "AGENT_RUNTIME=opencode\\n"
-                "COMPOSE_PROJECT_NAME=positional-agent-test\\n"
-                "PROJECT_DIR=./workspace\\n"
+                "\n".join((
+                    "AGENT_RUNTIME=opencode",
+                    "COMPOSE_PROJECT_NAME=positional-agent-test",
+                    "PROJECT_DIR=./workspace",
+                )) + "\n"
             )
             (checkout / "config/agent-runtimes.json").write_text(
                 json.dumps({
@@ -114,14 +116,16 @@ class AgentDispatchTests(unittest.TestCase):
             )
             manifest = checkout / "dependencies/dependencies.toml"
             manifest.write_text(
-                '[[agents]]\\nid="codex"\\nenabled=true\\n'
-                '[[agents]]\\nid="opencode"\\nenabled=true\\n'
-                '[[agents]]\\nid="future-agent"\\nenabled=true\\n'
+                "\n".join((
+                    '[[agents]]', 'id="codex"', 'enabled=true',
+                    '[[agents]]', 'id="opencode"', 'enabled=true',
+                    '[[agents]]', 'id="future-agent"', 'enabled=true',
+                )) + "\n"
             )
             fake_bin = checkout / "fake-bin"
             fake_bin.mkdir()
             fake_compose = fake_bin / "podman-compose"
-            fake_compose.write_text('#!/bin/sh\\nprintf "%s\\n" "$@"\\n')
+            fake_compose.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
             fake_compose.chmod(0o755)
             env = {**os.environ,
                    "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", "")}
@@ -175,9 +179,11 @@ class AgentDispatchTests(unittest.TestCase):
 
             # Registered but disabled runtimes must still fail closed.
             manifest.write_text(
-                '[[agents]]\\nid="codex"\\nenabled=false\\n'
-                '[[agents]]\\nid="opencode"\\nenabled=true\\n'
-                '[[agents]]\\nid="future-agent"\\nenabled=true\\n'
+                "\n".join((
+                    '[[agents]]', 'id="codex"', 'enabled=false',
+                    '[[agents]]', 'id="opencode"', 'enabled=true',
+                    '[[agents]]', 'id="future-agent"', 'enabled=true',
+                )) + "\n"
             )
             disabled = invoke("agent", "codex")
             self.assertNotEqual(disabled.returncode, 0)
