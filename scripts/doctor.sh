@@ -36,12 +36,18 @@ if grep -Fxq opencode "$enabled"; then
     command -v opencode >/dev/null 2>&1 || {
         echo "ERROR: enabled OpenCode binary missing" >&2; exit 1;
     }
-    printf "OpenCode:        "
-    opencode --version
+    # The native binary initializes logs even for --version. On the read-only
+    # root filesystem it must run through the OpenCode wrapper, which exports
+    # persistent XDG_* paths into the writable, project-scoped state volume.
     test -w /root/.isolated-opencode &&
       test -r /opt/isolated-agent/opencode-user.jsonc || {
         echo "ERROR: OpenCode state/config mount is unavailable" >&2; exit 1;
       }
+    test -x /usr/local/bin/isolated-agent-opencode || {
+        echo "ERROR: OpenCode XDG wrapper is missing" >&2; exit 1;
+    }
+    printf "OpenCode:        "
+    /usr/local/bin/isolated-agent-opencode --version
 else
     if command -v opencode >/dev/null 2>&1; then
         echo "ERROR: disabled OpenCode binary is installed" >&2; exit 1;
