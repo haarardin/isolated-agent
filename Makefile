@@ -8,6 +8,29 @@ PROJECT_DIR ?= ./workspace
 # Main CLI selection in .env; make agent dispatches via trusted runtime registry.
 AGENT_RUNTIME ?= codex
 export AGENT_RUNTIME
+
+# GNU Make treats "make agent codex" as TWO goals, not a positional
+# argument. Only when agent is the first goal, consume exactly one optional
+# runtime goal. Derive accepted names from the same trusted registry used by
+# scripts/agent.py (not a hardcoded Codex/OpenCode list). Reject other Make
+# targets up front, before any recipe can run in parallel.
+AGENT_REQUESTED_RUNTIME :=
+ifeq ($(firstword $(MAKECMDGOALS)),agent)
+ifneq ($(words $(MAKECMDGOALS)),1)
+ifneq ($(words $(MAKECMDGOALS)),2)
+$(error Usage: make agent [registered-runtime]; specify at most one runtime)
+endif
+AGENT_REQUESTED_RUNTIME := $(word 2,$(MAKECMDGOALS))
+# Only shell-safe registry IDs are eligible; unknown/malicious goals fail
+# during Make parsing, not after executing a container command.
+AGENT_REGISTERED_RUNTIMES := $(shell python3 -c 'import json,re; r=json.load(open("config/agent-runtimes.json")); print(" ".join(k for k in r if re.fullmatch(r"[a-z][a-z0-9-]{0,40}", k)))')
+ifneq ($(filter $(AGENT_REQUESTED_RUNTIME),$(AGENT_REGISTERED_RUNTIMES)),$(AGENT_REQUESTED_RUNTIME))
+$(error Unsupported agent runtime '$(AGENT_REQUESTED_RUNTIME)'; registered: $(AGENT_REGISTERED_RUNTIMES))
+endif
+# A new runtime registered in JSON needs no special Makefile target.
+.PHONY: $(AGENT_REQUESTED_RUNTIME)
+endif
+endif
 # A canonical-project-path fingerprint prevents state/history/long-term-memory
 # from leaking when PROJECT_DIR changes under the same Compose project name.
 CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --field key)
@@ -97,6 +120,8 @@ help:
 	  'make recreate-agent Recreate only the agent container' \
 	  'make login          Authenticate Codex using device flow' \
 	  'make agent          Open agent selected by AGENT_RUNTIME in .env' \
+	  'make agent codex    Override .env and open installed Codex for this invocation' \
+	  'make agent opencode Override .env and open installed OpenCode' \
 	  'make codex          Legacy: open Codex CLI directly' \
 	  'make opencode       Legacy: open OpenCode CLI directly' \
 	  'make opencode-mcp   Inspect OpenCode MCP connections' \
@@ -342,17 +367,24 @@ login:
 # The default entrypoint dispatches to a trusted registered CLI without
 # interpreting the environment-selected runtime as a shell command.
 agent:
-	@python3 scripts/agent.py
+	@$(if $(AGENT_REQUESTED_RUNTIME),AGENT_RUNTIME=$(AGENT_REQUESTED_RUNTIME) ,)python3 scripts/agent.py
 
+# Direct "make codex" / "make opencode" remain backwards compatible.
+# When the same name is the second goal of "make agent <runtime>", do not
+# launch a second session from the legacy direct target.
 codex:
+ifneq ($(AGENT_REQUESTED_RUNTIME),codex)
 	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex
+endif
 
 # The OpenCode V2 CLI is installed only when enabled under [[agents]].
 # Do not publish the agent API as a host port.
 opencode:
+ifneq ($(AGENT_REQUESTED_RUNTIME),opencode)
 	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
+endif
 
 opencode-mcp:
 	@python3 scripts/dependencies.py require-agent --name opencode
