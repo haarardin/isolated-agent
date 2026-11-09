@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import tomllib
@@ -15,18 +16,32 @@ SPEC.loader.exec_module(deps)
 
 
 class DependencyTests(unittest.TestCase):
-    def test_default_has_no_language_sdk(self):
+    def test_codex_only_has_no_language_sdk(self):
+        # Tests must declare their own agents instead of assuming the user's
+        # local dependencies.toml always enables Codex by default.
         cfg = deps.parse()
+        next(a for a in cfg["agents"] if a["id"] == "codex")["enabled"] = True
+        next(a for a in cfg["agents"] if a["id"] == "opencode")["enabled"] = False
         self.assertEqual(cfg["apt"]["packages"], [])
         with tempfile.TemporaryDirectory() as td:
             out = Path(td)
             manifest = deps.generate(cfg, out)
             image = (out / "Containerfile.dependencies").read_text()
-            self.assertIn("ARG CODEX_IMAGE=", image)
+            self.assertIn("ARG BASE_IMAGE=", image)
+            self.assertIn("install-codex.sh", image)
+            self.assertNotIn("install-opencode.sh", image)
             self.assertNotIn("go install", image)
             self.assertEqual(manifest["sidecars"], [])
-            self.assertIn("services: {}", (out / "compose.tools.yaml").read_text())
+            # Codex is enabled by default, so its persistent state is
+            # mounted through the generated [[agents]] Compose overlay.
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("services:\n  agent:\n    volumes:\n", compose)
+            self.assertIn("target: /root/.codex", compose)
+            self.assertIn("source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}", compose)
+            self.assertNotIn("/root/.isolated-opencode", compose)
             self.assertEqual(tomllib.loads((out / "codex-mcp.toml").read_text()), {})
+            self.assertEqual(json.loads((out / "opencode-mcp.json").read_text()),
+                             {"$schema": "https://opencode.ai/config.json", "mcp": {"servers": {}}})
 
     def test_optional_go_and_serena(self):
         cfg = deps.parse(ROOT / "dependencies/examples/go-serena.toml")
@@ -39,6 +54,10 @@ class DependencyTests(unittest.TestCase):
             self.assertIn("serena-agent==1.7.0", img)
             self.assertIn("gopls@", img)
             self.assertEqual(mcp["mcp_servers"]["serena"]["command"],
+                             "/opt/agent-tools/serena/bin/serena")
+            oc = json.loads((out / "opencode-mcp.json").read_text())
+            self.assertEqual(oc["mcp"]["servers"]["serena"]["type"], "local")
+            self.assertEqual(oc["mcp"]["servers"]["serena"]["command"][0],
                              "/opt/agent-tools/serena/bin/serena")
             bindings = json.loads((out / "tool-lsp.json").read_text())
             self.assertEqual(len(bindings), 1)
@@ -122,6 +141,9 @@ command = "/opt/serena/bin/serena"
             self.assertEqual(manifest["sidecars"], ["index"])
             self.assertEqual(mcp["index"]["url"], "http://project-a-tool-index:8787/mcp")
             self.assertEqual(mcp["remote"]["url"], "https://example.org/mcp")
+            oc = json.loads((out / "opencode-mcp.json").read_text())["mcp"]["servers"]
+            self.assertEqual(oc["index"], {"type": "remote", "url": "http://project-a-tool-index:8787/mcp"})
+            self.assertEqual(oc["remote"], {"type": "remote", "url": "https://example.org/mcp"})
             self.assertIn("project-a-tool-index", compose)
             self.assertIn("read_only: true", compose)
             self.assertNotIn("privileged:", compose)
@@ -159,7 +181,12 @@ command = "/opt/serena/bin/serena"
             compose = (out / "compose.tools.yaml").read_text()
             self.assertIn("services:\n  agent:\n    volumes:\n", compose)
             self.assertIn("/root/.serena:rw", compose)
-            self.assertEqual(len(compose.splitlines()), 5)
+            # The generated overlay also includes the default Codex state.
+            # Avoid brittle line-count checks; verify expected mount entries.
+            self.assertEqual(compose.count("  agent:\n"), 1)
+            self.assertEqual(compose.count("target: /root/.codex"), 1)
+            self.assertEqual(compose.count("/root/.serena:rw"), 1)
+            self.assertNotIn("/root/.isolated-opencode", compose)
             self.assertNotIn("{} ", compose)
             self.assertTrue(compose.endswith(":rw\"\n"))
 
@@ -232,6 +259,220 @@ url="http://unsafe.example/mcp"
     def test_disabled_tools_still_validated(self):
         deps.parse(ROOT / "dependencies/examples/mcp-http.toml")
 
+    def test_both_agents_and_scoped_opencode_state(self):
+        cfg = deps.parse()
+        # Explicitly enable both to exercise simultaneous installations,
+        # irrespective of whether the local test host is OpenCode-only.
+        for agent in cfg["agents"]:
+            if agent["id"] in ("codex", "opencode"):
+                agent["enabled"] = True
+        self.assertEqual([x["id"] for x in deps.enabled(cfg)], [])
+        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["codex", "opencode"])
+        agent = next(x for x in cfg["agents"] if x["id"] == "opencode")
+        self.assertEqual(agent["state"]["target"], "/root/.isolated-opencode")
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
+            out = Path(td)
+            deps.generate(cfg, out)
+            self.assertIn("install-opencode.sh", (out / "Containerfile.dependencies").read_text())
+            self.assertNotIn("nodejs", (out / "Containerfile.dependencies").read_text())
+            self.assertNotIn("npm install", (out / "Containerfile.dependencies").read_text())
+            self.assertIn("install-codex.sh", (out / "Containerfile.dependencies").read_text())
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "codex\nopencode\n")
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            readonly = str(ROOT / "config" / "opencode.jsonc") + ":/opt/isolated-agent/opencode-user.jsonc:ro"
+            self.assertIn(readonly, compose)
+            self.assertNotIn("opencode-user.jsonc:rw", compose)
+            self.assertNotIn("privileged:", compose)
+            self.assertNotIn("podman.sock", compose)
+            self.assertNotIn("docker.sock", compose)
+
+    def test_opencode_config_preflight_missing_symlink_and_valid(self):
+        cfg = deps.parse()
+        next(x for x in cfg["agents"] if x["id"] == "opencode")["enabled"] = True
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config_dir = root / "config"
+            config_dir.mkdir()
+            local = config_dir / "opencode.jsonc"
+            with mock.patch.object(deps, "ROOT", root), \
+                 mock.patch.dict(os.environ, {"COMPOSE_PROJECT_NAME": "test-project"}):
+                with self.assertRaisesRegex(ValueError, "config/opencode.example.jsonc"):
+                    deps.prepare_tool_state(cfg)
+                local.symlink_to("/etc/passwd")
+                with self.assertRaisesRegex(ValueError, "config/opencode.example.jsonc"):
+                    deps.prepare_tool_state(cfg)
+                local.unlink()
+                local.write_text('{"model": "proxyapi/qwen-flash"}')
+                deps.prepare_tool_state(cfg)
+                path = deps.state_dir(next(x for x in cfg["agents"] if x["id"] == "opencode"), "test-project")
+                self.assertTrue(path.is_dir())
+                # Local config remains on the host, outside generated state.
+                self.assertFalse((path / "opencode.jsonc").exists())
+
+    def test_doctor_uses_opencode_xdg_wrapper_on_read_only_root(self):
+        # The native CLI writes a log even for --version; direct execution
+        # tries /root/.local/share/opencode on a read-only filesystem.
+        doctor_path = ROOT / "scripts/doctor.sh"
+        subprocess.run(["bash", "-n", str(doctor_path)], check=True)
+        doctor = doctor_path.read_text()
+        wrapper = (ROOT / "scripts/opencode.sh").read_text()
+        self.assertIn("/usr/local/bin/isolated-agent-opencode --version", doctor)
+        self.assertNotIn("    opencode --version", doctor.splitlines())
+        self.assertLess(
+            doctor.index("test -w /root/.isolated-opencode"),
+            doctor.index("/usr/local/bin/isolated-agent-opencode --version"),
+        )
+        for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+            self.assertIn("export " + variable, wrapper)
+        self.assertIn('exec opencode "$@"', wrapper)
+
+    def test_opencode_config_is_not_baked_or_in_workspace(self):
+        example = ROOT / "config" / "opencode.example.jsonc"
+        data = json.loads(example.read_text())
+        self.assertEqual(data["providers"]["proxyapi"]["settings"]["baseURL"],
+                         "https://api.proxyapi.ru/v1")
+        self.assertNotIn("apiKey", example.read_text())
+        wrapper = (ROOT / "scripts/opencode.sh").read_text()
+        self.assertIn('export OPENCODE_CONFIG="$config"', wrapper)
+        self.assertIn("/opt/isolated-agent/opencode-user.jsonc", wrapper)
+        image = (ROOT / "images/project/Containerfile").read_text()
+        self.assertNotIn("config/opencode.jsonc", image)
+        self.assertIn("/config/opencode.jsonc", (ROOT / ".gitignore").read_text())
+
+    def test_explicit_no_cache_rebuild_is_opt_in(self):
+        # Do not launch Podman; verify the effective command passed to it.
+        for enabled in (False, True):
+            with self.subTest(no_cache=enabled), tempfile.TemporaryDirectory() as td:
+                with mock.patch.object(deps, "OUT", Path(td)), \
+                     mock.patch.object(deps.subprocess, "run") as run, \
+                     mock.patch("sys.argv", ["dependencies.py", "build"] +
+                                (["--no-cache"] if enabled else [])):
+                    self.assertEqual(deps.main(), 0)
+                    self.assertEqual(run.call_count, 1)
+                    command = run.call_args.args[0]
+                    self.assertEqual(command[:2], ["podman", "build"])
+                    self.assertEqual("--no-cache" in command, enabled)
+
+    def test_native_opencode_installer_has_no_version_pin(self):
+        # The installer must keep working when upstream changes major/minor
+        # versions or CLI output format; do not parse a version banner.
+        installer = ROOT / "dependencies/scripts/install-opencode.sh"
+        source = installer.read_text()
+        subprocess.run(["bash", "-n", str(installer)], check=True)
+        self.assertIn('bash "$installer" --no-modify-path', source)
+        self.assertIn('opencode --version', source)  # executable smoke check only
+        self.assertNotIn('verify_opencode_version', source)
+        self.assertNotIn('--version "$version"', source)
+        self.assertNotIn('version="${1:', source)
+        self.assertNotIn('npm install', source)
+        self.assertNotIn('apt-get install', source)
+        for path in (
+                ROOT / "dependencies/dependencies.toml",
+                ROOT / "dependencies/examples/go-opencode-serena.toml"):
+            config = deps.parse(path)
+            agent = next(a for a in config["agents"] if a["id"] == "opencode")
+            scripts = [x for x in agent["install"] if x.get("file") == "install-opencode.sh"]
+            self.assertEqual(len(scripts), 1)
+            self.assertNotIn("args", scripts[0])
+            self.assertEqual(scripts[0]["verify"], ["opencode --version"])
+
+    def test_documented_opencode_go_serena_example(self):
+        cfg = deps.parse(ROOT / "dependencies/examples/go-opencode-serena.toml")
+        self.assertEqual([x["id"] for x in deps.enabled_agents(cfg)], ["opencode"])
+        self.assertEqual([x["id"] for x in deps.enabled(cfg)], ["serena"])
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            img = (out / "Containerfile.dependencies").read_text()
+            self.assertIn("install-opencode.sh", img)
+            self.assertNotIn("nodejs", img)
+            self.assertNotIn("npm install", img)
+            self.assertIn("gopls@v0.20.0", img)
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            self.assertIn("/root/.serena:rw", compose)
+            self.assertIn("/opt/isolated-agent/opencode-user.jsonc:ro", compose)
+            mcp = json.loads((out / "opencode-mcp.json").read_text())
+            self.assertIn("serena", mcp["mcp"]["servers"])
+            self.assertEqual(mcp["mcp"]["servers"]["serena"]["type"], "local")
+
+    def test_documented_proxyapi_config_examples(self):
+        for name in ("opencode.example.jsonc", "opencode.proxyapi-multi.example.jsonc"):
+            path = ROOT / "config" / name
+            example = path.read_text()
+            self.assertIn('"providers"', example)
+            self.assertIn('"baseURL": "https://api.proxyapi.ru/v1"', example)
+            self.assertIn('"env": ["PROXYAPI_API_KEY"]', example)
+            self.assertNotIn("sk-", example)
+            self.assertNotIn('"apiKey"', example)
+            self.assertIn('"modelID"', example)
+        # The default template is plain JSON; copy+edit with json.tool is valid.
+        data = json.loads((ROOT / "config/opencode.example.jsonc").read_text())
+        self.assertEqual(data["model"], "proxyapi/qwen-flash")
+
+    def test_agents_disabled_do_not_install_or_mount(self):
+        cfg = deps.parse()
+        for agent in cfg["agents"]:
+            agent["enabled"] = False
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            image = (out / "Containerfile.dependencies").read_text()
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertNotIn("install-codex.sh", image)
+            self.assertNotIn("install-opencode.sh", image)
+            self.assertNotIn("/root/.codex", compose)
+            self.assertNotIn("/root/.isolated-opencode", compose)
+            self.assertIn("services: {}", compose)
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "")
+
+    def test_only_opencode_installed_without_codex(self):
+        cfg = deps.parse()
+        next(x for x in cfg["agents"] if x["id"] == "codex")["enabled"] = False
+        next(x for x in cfg["agents"] if x["id"] == "opencode")["enabled"] = True
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            deps.generate(cfg, out)
+            image = (out / "Containerfile.dependencies").read_text()
+            compose = (out / "compose.tools.yaml").read_text()
+            self.assertNotIn("install-codex.sh", image)
+            self.assertIn("install-opencode.sh", image)
+            self.assertNotIn("npm install", image)
+            self.assertNotIn("nodejs", image)
+            self.assertIn("/root/.isolated-opencode:rw", compose)
+            self.assertNotIn("target: /root/.codex", compose)
+            self.assertEqual((out / "agents-enabled.txt").read_text(), "opencode\n")
+
+    def test_invalid_agent_configuration_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "bad.toml"
+            common = '''[[agents]]
+id = "codex"
+enabled = true
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+'''
+            for case in (
+                common,  # no install steps
+                common + '[[agents.install]]\ntype = "apt"\npackages = ["curl"]\n[[agents]]\nid = "codex"\nenabled = false\n',
+                '''[[agents]]
+id = "opencode"
+enabled = true
+[[agents.install]]
+type = "command"
+run = "true"
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.codex"
+''',
+            ):
+                with self.subTest(case=case):
+                    path.write_text(case)
+                    with self.assertRaises(ValueError):
+                        deps.parse(path)
+
     def test_generation_is_deterministic(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             first = deps.generate(deps.parse(), Path(a))
@@ -239,6 +480,8 @@ url="http://unsafe.example/mcp"
             self.assertEqual(first, second)
             self.assertEqual((Path(a) / "Containerfile.dependencies").read_bytes(),
                              (Path(b) / "Containerfile.dependencies").read_bytes())
+            self.assertEqual((Path(a) / "opencode-mcp.json").read_bytes(),
+                             (Path(b) / "opencode-mcp.json").read_bytes())
 
 
 if __name__ == "__main__":

@@ -16,3 +16,6 @@ workspace/*
 
 # Generated dependency images, MCP TOML, and Compose sidecars.
 /.generated/
+
+# Local agent provider configuration; copy the committed .example file.
+/config/opencode.jsonc

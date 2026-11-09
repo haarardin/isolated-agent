@@ -24,11 +24,8 @@ services:
     volumes:
       - ${PROJECT_DIR:-./workspace}:/workspace:rw
       # ~/Documents in the immutable image is a symlink to /workspace.
-      # Do not add a second mount: project layer provides the alias.
-      - type: ${CODEX_STATE_MOUNT_TYPE:-bind}
-        source: ${CODEX_STATE_MOUNT_SOURCE:-./volumes/codex}
-        target: /root/.codex
-        read_only: false
+      # Agent-specific state mounts are generated from [[agents]] in
+      # .generated/compose.tools.yaml; Codex is not mounted when disabled.
       - agent-cache:/root/.cache
     read_only: true
     tmpfs:

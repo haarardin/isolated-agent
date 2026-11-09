@@ -5,7 +5,7 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/scripts" "$tmp/dependencies/scripts"
+mkdir -p "$tmp/scripts" "$tmp/dependencies/scripts" "$tmp/config"
 cp Makefile "$tmp/Makefile"
 cp scripts/dependencies.py scripts/project-state.py scripts/reconcile-tool-sidecars.py "$tmp/scripts/"
 cat > "$tmp/fake-podman.sh" <<'EOF'
@@ -15,7 +15,8 @@ exit 2
 EOF
 chmod 0755 "$tmp/fake-podman.sh"
 cp dependencies/dependencies.toml "$tmp/dependencies/dependencies.toml"
-cp dependencies/scripts/install-ci-smoke.sh "$tmp/dependencies/scripts/"
+cp dependencies/scripts/install-ci-smoke.sh dependencies/scripts/install-codex.sh dependencies/scripts/install-opencode.sh "$tmp/dependencies/scripts/"
+cp config/agent-runtimes.json "$tmp/config/agent-runtimes.json"
 
 cat > "$tmp/fake-compose.sh" <<'EOF'
 #!/usr/bin/env bash

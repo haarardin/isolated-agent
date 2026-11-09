@@ -18,15 +18,16 @@ Host Linux
 └── isolated Compose network           │
        │                               │
        ├── agent                       │
-       │    ├── Codex CLI              │
+       │    ├── Codex / OpenCode CLI (when enabled) │
        │    ├── Optional SDKs         │
        │    ├── project dependencies   │
        │    ├── /workspace  ◄──────────┘
        │    │    ├── AGENTS.md              project instructions
        │    │    ├── .codex/config.toml     project Codex config
        │    │    └── .serena/               project Serena state
-       │    ├── /root/.codex  volume        runtime/user state
-       │    ├── /root/.serena volume        Serena global state (optional)
+       │    ├── /root/.codex  volume        Codex state (if enabled)
+       │    ├── /root/.isolated-opencode   OpenCode state (if enabled)
+│    ├── /root/.serena volume        Serena global state (optional)
        │    └── /root/.cache  volume        build/tool cache
        │
        ├── postgres      optional
@@ -41,23 +42,56 @@ The agent does **not** receive the host Podman/Docker socket. Service orchestrat
 
 ## Image layers
 
-The environment uses four reusable image layers:
+The normal build uses **three image layers**:
 
-1. `base` — neutral Debian 13 with common utilities; no Go SDK or Serena.
-2. `codex` — official Codex CLI and Remote Control.
-3. `dependencies` — explicit SDKs, packages and embedded Agent Tools.
-4. `project` — Codex configuration, global policy and generated MCP entries.
+1. `base` — neutral Debian 13 with common utilities; no coding agent, Node.js, npm, Go SDK or Serena.
+2. `dependencies` — only enabled `[[agents]]` (Codex and/or OpenCode), optional SDKs, and `[[agent_tools]]` (MCP/LSP).
+3. `project` — runtime defaults, generated MCP configurations and common tools.
+
+The older `images/codex/Containerfile` and `make build-codex` are
+retained for legacy/manual workflows, **not** required by `make build`.
 
 Serena is **not** an intrinsic image layer or Compose service. To install it,
 enable `[[agent_tools]]` in `dependencies/dependencies.toml`.
 
+## Configurable coding agents
+
+Codex and [OpenCode V2](docs/opencode.md) are **independent, optional**
+runtimes, installed through `[[agents]]` entries in
+`dependencies/dependencies.toml`. By default Codex is enabled and
+OpenCode is disabled to preserve existing setups.
+
+The default entrypoint is `make agent`. Select the installed runtime
+using `AGENT_RUNTIME=codex` or `AGENT_RUNTIME=opencode` in `.env`.
+The selection **does not install or enable a runtime**; enabling/disabling
+an agent requires image rebuild and container recreation. A disabled
+agent is rejected before Compose execution.
+
+OpenCode is installed using the official standalone **shell installer**, which
+selects the latest available upstream release at installation time — **no
+version pin and no Node.js or npm** solely for OpenCode. Existing Podman
+build layers may be reused; see the [runtime guide](docs/opencode.md) for
+refreshing an installed version.
+Node.js/npm remain optional dependencies for projects or MCP tools.
+
+OpenCode provider/model settings live in the `isolated-agent` checkout,
+**not in `PROJECT_DIR`**. Copy
+`config/opencode.example.jsonc` to ignored `config/opencode.jsonc`.
+The config is mounted read-only; enter your ProxyAPI key using `/connect`
+and keep credentials in the per-project state volume.
+
+For full steps use [OpenCode + ProxyAPI smoke test](docs/opencode-smoke-test.md)
+and [Go + OpenCode + Serena example](dependencies/examples/go-opencode-serena.toml).
+
 ## Persistent Codex and optional Agent Tool state
 
-The default Codex home, including auth, SQLite memories and session
-history, is bind-mounted from the gitignored host directory
-`./volumes/codex/<project-key>`. `make up`, `make offline` and
-`make recreate-agent` prepare this state. A per-project identity
-marker prevents accidental cross-project Codex state reuse.
+When Codex is enabled, its home — including authentication, SQLite
+memories and session history — is bind-mounted from the gitignored
+`./volumes/codex/<project-key>` directory. `make up`, `make offline`
+and `make recreate-agent` prepare this state. A per-project identity
+marker prevents accidental cross-project state reuse. When Codex is
+disabled, its persistent state is not mounted; enabled OpenCode uses its
+own `./volumes/opencode/<project-key>` directory.
 
 Additional tools opt into persistence through `[agent_tools.state]`,
 which mounts a separate `./volumes/.../<project-key>` directory into
@@ -95,7 +129,7 @@ MCP and CLI tools share one generic `[[agent_tools]]` manifest with
 ```bash
 make deps-validate
 make deps-plan       # preview generated image and MCP definitions
-make build           # build Base, Codex, Dependencies, Project
+make build           # build Base, enabled agents/Dependencies, Project
 make up              # agent + filtered Squid + enabled sidecars
 make doctor
 ```
@@ -192,7 +226,7 @@ cp .env.example .env
 
 Set `PROJECT_DIR` in `.env` to the source directory the agent may access.
 
-Build the generic agent (Base + Codex + Dependencies + Project):
+Build the generic agent (Base + enabled agents/Dependencies + Project):
 
 ```bash
 make deps-validate
@@ -204,7 +238,7 @@ On an existing host, `make ensure-project-image` can reuse current tags
 and build only missing layers. It does **not** detect changed dependencies
 or configuration: use `make build-project` to apply those changes.
 `make ensure-images` is an alias for ensuring the Project image
-(and its Base/Codex prerequisites); it never builds Serena unless
+(and its Base prerequisite); it never builds Serena unless
 Serena is explicitly enabled as an Agent Tool and the dependencies
 are deliberately rebuilt.
 
@@ -218,17 +252,25 @@ Use `make offline` for a network-isolated agent **without Internet**.
 Existing contexts with the old `internal: false` Podman network must migrate
 explicitly; see [network isolation](docs/network-isolation.md).
 
-Authenticate Codex once:
+If Codex is enabled, authenticate it once:
 
 ```bash
 make login
 ```
 
-Open Codex:
+Start the selected agent (Codex by default):
 
 ```bash
-make codex
+make agent
 ```
+
+To use OpenCode instead, set `enabled = true` in its `[[agents]]` entry,
+set `AGENT_RUNTIME=opencode` in `.env`, and create the ignored local
+`config/opencode.jsonc`. Run `make build`, then `make recreate-agent`
+(and `make up`) on an existing deployment before `make agent`. Do not
+register OpenCode under `[[agent_tools]]`; that section is for Serena and
+other MCP/supporting tools. `make codex` and `make opencode` remain
+available for direct launch only when the respective runtime is enabled.
 
 Open a regular shell:
 
@@ -345,8 +387,8 @@ The reusable host-level images share these default tags:
 
 ```text
 localhost/isolated-agent-base:dev
-localhost/isolated-agent-codex:dev
 localhost/isolated-agent-dependencies:dev
+# Legacy/manual only: localhost/isolated-agent-codex:dev
 ```
 
 The **Project** image is project-scoped by default, keyed by the
@@ -370,22 +412,23 @@ and an absolute `PROJECT_DIR` for the target source directory:
 ```bash
 make deps-validate
 make deps-plan
-make build              # on a fresh host: Base, Codex, Dependencies, Project
+make build              # on a fresh host: Base, enabled agents/Dependencies, Project
 make up
 make ps
 ```
 
-On a host where Base and Codex already exist, run `make build-project`
+On a host where Base already exists, run `make build-project`
 instead of `make build`. `make ensure-project-image` reuses existing
 image tags and builds only missing layers; it does not detect changed
 dependencies, build arguments or generated MCP configuration.
-`make ensure-images` now ensures only Base, Codex and Project images,
+`make ensure-images` now ensures only Base and Project images,
 without an extra dedicated Serena image.
 
 ### What is shared and what stays isolated
 
-The Base and Codex image tags, and by default the Dependencies image tag,
-are reusable. Workspace files, containers, Codex and Serena state,
+The Base image tag, and by default the Dependencies image tag,
+are reusable. Workspace files, containers, enabled Codex/OpenCode state,
+Serena/Agent Tool state,
 Project image tags, and runtime lifecycle checkpoints are scoped per project.
 Internal networks are separate by default; sharing `AGENT_NETWORK_NAME`
 with another *trusted* project grants mutual service reachability.
@@ -435,23 +478,30 @@ to the normal Project image with declarative Serena enabled.
 
 ### Rebuild rules
 
-Use `make ensure-images` to reuse current Base/Codex/Project image tags
+Use `make ensure-images` to reuse current Base/Project image tags
 without checking whether their build inputs changed.
 
 Use `make build-project` when project settings, SDKs, dependencies or
 `[[agent_tools]]` configuration changes. After saving active work,
 run `make recreate-agent` to deploy the rebuilt Project image.
-Use `make build` to rebuild all four layers from Base upwards.
+Use `make build` to rebuild all three active layers (Base -> Dependencies
+-> Project). The old Codex image is not part of this build.
 
 The Project image inherits generated Dependencies and MCP configuration.
-A rebuild does not hot-reload active Codex sessions.
+A rebuild does not hot-reload active Codex or OpenCode sessions.
 
-## Persistent Codex state
+## Persistent agent state
 
-`/root/.codex` is the **complete** persistent CODEX_HOME, including
+When Codex is enabled, `/root/.codex` is the **complete** persistent CODEX_HOME, including
 authentication, sessions, history, native memories, and associated SQLite
 files. By default its source is a gitignored host directory:
-`./volumes/codex/<project-key>` (bind-mounted). Serena global state
+`./volumes/codex/<project-key>` (bind-mounted). When disabled, Codex is
+neither installed nor mounted. When OpenCode is enabled, its separate
+persistent user/configuration state is at `/root/.isolated-opencode`,
+bind-mounted from `./volumes/opencode/<project-key>`. The provider/model
+configuration is separately read-only mounted from the gitignored
+`config/opencode.jsonc` in this checkout (not from PROJECT_DIR).
+Serena global state
 defaults to `./volumes/serena/<project-key>` at `/root/.serena`;
 Serena project memories remain under `PROJECT_DIR/.serena/memories/`.
 The `agent-cache` named volume is mounted at `/root/.cache`.
@@ -461,8 +511,8 @@ Legacy Podman named volumes work when explicitly selected in `.env`,
 but must exist unless a separate named-volume creation opt-in is enabled.
 See [migration and backups](docs/codex-config.md#upgrading-an-existing-codex-volume).
 
-The image-owned generic `AGENTS.md` is synchronized into
-`/root/.codex/AGENTS.md` on startup without erasing authentication,
+When Codex is enabled, the image-owned generic `AGENTS.md` is synchronized
+into `/root/.codex/AGENTS.md` on startup without erasing authentication,
 memories or Codex-managed state. Repository instructions belong in
 `/workspace/AGENTS.md`.
 
@@ -594,7 +644,7 @@ make stop
 make start
 make deps-reconcile
 make login
-make codex
+make agent
 make shell
 make test
 make race
@@ -700,9 +750,10 @@ make doctor
 
 This verifies the effective runtime environment inside the agent container:
 
-- Go is present in `PATH`;
-- Codex is present in `PATH`;
-- `/workspace`, `CODEX_HOME`, and the build cache are writable;
+- Go is present in `PATH` only if its SDK was installed;
+- every enabled coding runtime is installed, and disabled runtimes are absent;
+- `/workspace`, the build cache, and **enabled** runtime state directories
+  (`CODEX_HOME` and/or the OpenCode XDG state) are writable;
 - the container root filesystem remains read-only.
 
 Scripted test commands intentionally use a non-login shell. A login shell (`bash -l`) can replace the image-provided `PATH` via `/etc/profile` and hide toolchain paths such as `/usr/local/go/bin`.
@@ -758,12 +809,16 @@ twice without an intervening `make start` does not erase the checkpoint.
 services before the agent, and then clears the checkpoint after success.
 
 The operations do not create/remove containers, build images, change
-Compose profiles, networks or volumes. They verify the project labels
-and agent's workspace/Codex mounts before acting. If a saved container
-was removed/recreated externally or the project configuration now
-points to a different workspace, `make start` **fails rather than
-silently switching containers**. Inspect/resolve the stale checkpoint
-before a fresh `make up` or `make stop` cycle.
+Compose profiles, networks or volumes. They select **Compose-managed
+services of the configured COMPOSE_PROJECT_NAME** by project and service
+labels. Neither command inspects or validates the agent's workspace,
+Codex state or OpenCode state mounts. `make start` still verifies that
+every saved container ID exists and retains the same project/service
+labels before restarting anything. If an ID was removed/recreated
+externally, resolve the stale checkpoint before another lifecycle cycle.
+The checkpoint filename remains scoped to the current project key
+(which derives from COMPOSE_PROJECT_NAME and PROJECT_DIR), so run
+`make start` from the same checkout/settings used for `make stop`.
 
 `make start` is **not a substitute for initial `make up`** and is not
 an image-update command. Without a prior `make stop`, it will explain
@@ -830,8 +885,12 @@ Serena is an **ordinary embedded MCP Agent Tool** configured through
 `dependencies/dependencies.toml`. No custom image, Compose profile,
 Make commands or mandatory Serena installation remain.
 
-The example `dependencies/examples/go-serena.toml` opts into Python,
-Serena, Go/gopls and clangd. Add the required entries to the active
+The examples `dependencies/examples/go-serena.toml` (Codex) and
+`dependencies/examples/go-opencode-serena.toml` (OpenCode) opt into Python,
+Serena, Go/gopls and clangd. Serena itself is defined **once** in
+`[[agent_tools]]` and registered with both installed MCP clients.
+For stdio transport, each active client starts its own Serena process
+from that shared installation. Add the required entries to the active
 TOML and use the standard tool lifecycle:
 
 ```bash
@@ -839,8 +898,10 @@ make deps-validate
 make deps-plan
 make build-project
 make recreate-agent    # when an agent already exists; save work first
+make up                # ensure Squid/filtered web egress is started
 make doctor
-make lsp-doctor         # deep Serena check after analyzable source exists
+make opencode-mcp     # if OpenCode is enabled; verify MCP registration
+make lsp-doctor       # deep LSP check when configured and source exists
 ```
 
 See [generic MCP/Agent Tools](docs/dependencies.md) and the

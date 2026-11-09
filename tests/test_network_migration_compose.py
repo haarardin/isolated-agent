@@ -15,9 +15,11 @@ class NetworkMigrationComposeTests(unittest.TestCase):
             root = Path(tmp)
             (root/"scripts").mkdir()
             (root/"dependencies").mkdir()
+            (root/"config").mkdir()
             (root/"bin").mkdir()
             for path in ["scripts/migrate-network.sh", "scripts/check-legacy-serena.py",
                          "scripts/dependencies.py", "dependencies/dependencies.toml",
+                         "config/agent-runtimes.json",
                          "compose.yaml", "compose.web.yaml",
                          "compose.example-services.yaml"]:
                 shutil.copy2(ROOT/path, root/path)
@@ -25,8 +27,12 @@ class NetworkMigrationComposeTests(unittest.TestCase):
             (root/"dependencies/scripts").mkdir()
             shutil.copy2(ROOT/"dependencies/examples/ci-smoke.toml",
                          root/"dependencies/dependencies.toml")
-            shutil.copy2(ROOT/"dependencies/scripts/install-ci-smoke.sh",
-                         root/"dependencies/scripts/install-ci-smoke.sh")
+            # The ci-smoke manifest declares Codex under [[agents]].
+            # The generator validates the agent registry and installer paths
+            # even for this fake Podman/Compose migration test.
+            for script in ("install-ci-smoke.sh", "install-codex.sh"):
+                shutil.copy2(ROOT/"dependencies/scripts"/script,
+                             root/"dependencies/scripts"/script)
             fake_podman = root/"bin/podman"
             fake_podman.write_text("""#!/usr/bin/env bash
 if [[ "$1 $2 $3" == 'ps -a -q' ]]; then exit 0; fi

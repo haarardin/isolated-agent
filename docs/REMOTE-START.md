@@ -1,7 +1,7 @@
 # Start Codex Remote Control on Debian (rootless Podman)
 
 This is the **start-to-finish operator runbook** for using the existing
-`isolated-agent` as a headless, remotely accessible Codex worker from
+`isolated-agent` as a headless, remotely accessible **Codex** worker from
 ChatGPT/Codex on Android. All commands below run **on the Debian host,
 as your normal user, in the `isolated-agent` repository directory**.
 Do not use `sudo`. No Webtop GUI, public inbound port or Podman socket is
@@ -51,7 +51,12 @@ verification below.
    BLOCK_CIDRS=
    ```
 
-   `PROJECT_DIR` **must exist**. Native Codex memories are enabled by default
+   `PROJECT_DIR` **must exist**. This Remote Control workflow specifically
+   requires `[[agents]] id = "codex"` with `enabled = true` in
+   `dependencies/dependencies.toml`. OpenCode-only installs do **not**
+   include Codex Remote Control. Set `AGENT_RUNTIME=codex` in `.env`
+   if you also want `make agent` to open Codex. Native Codex memories
+   are enabled by default
    in the newly built project image. Persistent Codex state is selected
    automatically by source project, or with CODEX_STATE_VOLUME in .env.
    See [state migration](codex-config.md#upgrading-an-existing-codex-volume)
@@ -103,7 +108,7 @@ verification below.
    the network.**
 
    ```bash
-   make build             # Base + Codex CLI + Dependencies + Project
+   make build             # Base -> Dependencies (enabled Codex) -> Project
    make up                # agent plus dual-homed filtered Squid
    make ps
    make doctor
@@ -183,6 +188,7 @@ make preflight
 
 make build-project        # adds /root/Documents -> /workspace to the image
 make recreate-agent       # deploys image; does NOT delete named volumes
+make up                   # ensure online Squid proxy is started
 make network-check
 make remote-start         # daemon was stopped by container recreation
 make remote-status
@@ -192,8 +198,11 @@ make remote-doctor
 `make recreate-agent` deliberately recreates **only agent**; Squid,
 PostgreSQL/Redis services, networks and named volumes are not reset.
 `make up` alone may leave an existing container on the old image.
-If you need an updated Codex CLI as well, first run
-`make build-codex && make build-project` before `make recreate-agent`.
+The ordinary build installs enabled Codex in the **Dependencies** image,
+not the legacy standalone Codex image. To fetch the currently available
+upstream Codex CLI again, use `make build DEPS_NO_CACHE=true` before
+`make recreate-agent`. This rebuilds other enabled dependencies too.
+Do not rely on `make build-codex` for the active Project image chain.
 If you were not logged in previously, run `make login` after recreation.
 If Android was paired already, **test the existing connection first**;
 only re-run `make remote-pair` if pairing is lost.
@@ -206,6 +215,7 @@ Project image and lifecycle as other modules:
 make deps-validate
 make build-project
 make recreate-agent
+make up
 make network-check
 make remote-start
 make remote-doctor
@@ -276,7 +286,7 @@ systemd-in-container or public TCP listener is required.
 | `remote-start` refuses due to missing Squid | Run `make up`, not `make offline`; then `make network-check` |
 | Remote daemon reports stopped | Run `make remote-start`, then `make remote-status` |
 | `/root/Documents` read-only error on Android | Rebuild **project** image and `make recreate-agent` as in B; do **not** disable `read_only` |
-| CLI lacks `remote-control` | Rebuild Codex and project images, recreate agent and verify `codex --version` |
+| CLI lacks `remote-control` | Confirm `[[agents]] id="codex"` is enabled, rebuild with `make build DEPS_NO_CACHE=true`, then `make recreate-agent` and verify `codex --version` inside the agent |
 | HTTPS/CONNECT fails in `make remote-doctor` | Verify `make network-check`, Squid ACL/DNS and egress; do not attach an outbound network directly to agent |
 | Host visible on Android but remote turn fails | Check `make remote-doctor`; then inspect the writable workdir and try a **new** remote thread |
 | Android has no manual pairing UI | CLI pairing is experimental and not promised for every Android build; check the app version/available pairing flow |

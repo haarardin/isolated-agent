@@ -5,6 +5,9 @@ endif
 
 COMPOSE_PROJECT_NAME ?= isolated-agent-demo
 PROJECT_DIR ?= ./workspace
+# Main CLI selection in .env; make agent dispatches via trusted runtime registry.
+AGENT_RUNTIME ?= codex
+export AGENT_RUNTIME
 # A canonical-project-path fingerprint prevents state/history/long-term-memory
 # from leaking when PROJECT_DIR changes under the same Compose project name.
 CODEX_PROJECT_KEY := $(shell python3 scripts/project-state.py --project-dir "$(PROJECT_DIR)" --compose-project "$(COMPOSE_PROJECT_NAME)" --field key)
@@ -28,6 +31,8 @@ BLOCK_CIDRS ?=
 SQUID_IMAGE ?= docker.io/ubuntu/squid:6.6-24.04_edge
 export COMPOSE_PROJECT_NAME AGENT_NETWORK_NAME AGENT_SUBNET BLOCK_CIDRS SQUID_IMAGE
 PODMAN ?= podman
+# Opt-in: force a fresh Dependencies image install (e.g. latest OpenCode).
+DEPS_NO_CACHE ?= false
 COMPOSE ?= bash scripts/compose.sh
 COMPOSE_WEB ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f .generated/compose.tools.yaml
 COMPOSE_EXAMPLE ?= $(COMPOSE) -f compose.yaml -f compose.web.yaml -f compose.example-services.yaml -f .generated/compose.tools.yaml
@@ -60,15 +65,15 @@ CODEX_PROJECT_DOC_MAX_BYTES ?= 65536
 CODEX_SHELL_IGNORE_DEFAULT_EXCLUDES ?= false
 CODEX_FEATURE_MEMORIES ?= true
 
-.PHONY: test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
+.PHONY: agent opencode opencode-mcp opencode-serve test-compose-context-static start stop lsp-doctor deps-tool-state deps-validate deps-plan deps-generate deps-build deps-tools-up deps-reconcile deps-lint prepare-state memory-info network-info network-ensure remote-start remote-pair remote-status remote-stop remote-logs remote-doctor network-check network-static prepare-web migrate-network offline offline-example preflight doctor build build-base build-codex build-project ensure-images ensure-base-image ensure-codex-image ensure-project-image test-image-reuse-static test-project-context-static up up-example down down-example stop-agent remove-agent recreate-agent clean reset-example-db login codex shell test race integration logs logs-example ps ps-example reset-state
 
 help:
 	@printf '%s\n' \
 	  'make preflight      Check host requirements' \
 	  'make doctor         Check the running agent toolchain/runtime' \
-	  'make build          Build Base, Codex, Dependencies and Project images' \
+	  'make build          Build Base, enabled agents, Dependencies and Project images' \
 	  'make deps-plan     Inspect generated tools and MCP configuration' \
-	  'make ensure-images  Reuse Base, Codex and Project images; build only missing' \
+	  'make ensure-images  Reuse Base and Project images; build only missing' \
 	  'make test-image-reuse-static Validate image reuse logic without Podman' \
 	  'make test-project-context-static Validate /workspace project context rules' \
 	  'make up             Start agent with filtered Squid egress' \
@@ -91,7 +96,11 @@ help:
 	  'make remove-agent   Remove only the agent container' \
 	  'make recreate-agent Recreate only the agent container' \
 	  'make login          Authenticate Codex using device flow' \
-	  'make codex          Open interactive Codex CLI' \
+	  'make agent          Open agent selected by AGENT_RUNTIME in .env' \
+	  'make codex          Legacy: open Codex CLI directly' \
+	  'make opencode       Legacy: open OpenCode CLI directly' \
+	  'make opencode-mcp   Inspect OpenCode MCP connections' \
+	  'make opencode-serve Start OpenCode API on container loopback' \
 	  'make shell          Open a shell inside the agent' \
 	  'make test           Run the project unit-test command' \
 	  'make race           Run Go race tests' \
@@ -120,7 +129,9 @@ network-ensure: preflight
 	@python3 scripts/network-preflight.py --ensure --subnet "$(AGENT_SUBNET)" --project "$(COMPOSE_PROJECT_NAME)" --network-name "$(AGENT_NETWORK_NAME)" --state .state/network.json
 
 prepare-state:
-	@python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"
+	@if [ "$(python3 scripts/dependencies.py agent-enabled --name codex)" = "true" ]; then \
+	python3 scripts/prepare-state.py --codex-type "$(CODEX_STATE_MOUNT_TYPE)" --codex-source "$(CODEX_STATE_MOUNT_SOURCE)" --codex-named-volume "$(CODEX_NAMED_VOLUME)" --codex-create-named-volume "$(CODEX_CREATE_NAMED_VOLUME)" --podman "$(PODMAN)"; \
+	else printf "Codex disabled; skipping Codex state preparation.\\n"; fi
 
 prepare-web: network-ensure prepare-state deps-generate deps-tool-state deps-reconcile
 	@bash scripts/prepare-web.sh
@@ -138,7 +149,7 @@ deps-tool-state:
 	@python3 scripts/dependencies.py tool-state
 
 deps-build: deps-generate
-	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --codex-image "$(CODEX_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)"
+	@python3 scripts/dependencies.py build --engine "$(PODMAN)" --base-image "$(BASE_IMAGE)" --deps-image "$(DEPENDENCIES_IMAGE)" $(if $(filter true 1 yes,$(DEPS_NO_CACHE)),--no-cache,)
 
 deps-reconcile: deps-generate
 	@services="$$(python3 scripts/dependencies.py sidecar-services)"; \
@@ -160,11 +171,12 @@ doctor:
 lsp-doctor:
 	@bash scripts/compose.sh exec agent bash /usr/local/bin/isolated-agent-tool-lsp-runtime probe
 
-build: build-base build-codex build-project
+build: build-base build-project
 
 # Fast bootstrap for additional repository clones on the same rootless-Podman
 # host. Podman image storage is shared by tag for the current host user, so
 # reuse an existing image instead of invoking a redundant build.
+# The legacy Codex image target is retained but is not part of the active build.
 #
 # This intentionally checks only image existence. If project-level inputs
 # change, use make build-project. Project-specific
@@ -187,7 +199,7 @@ ensure-codex-image: ensure-base-image
 		$(MAKE) build-codex; \
 	fi
 
-ensure-project-image: ensure-codex-image
+ensure-project-image: ensure-base-image
 	@if $(PODMAN) image exists "$(PROJECT_IMAGE)"; then \
 		printf 'Reusing existing image: %s\n' "$(PROJECT_IMAGE)"; \
 	else \
@@ -324,10 +336,31 @@ network-static:
 	@bash scripts/test-security-static.sh
 
 login:
+	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex login --device-auth
 
+# The default entrypoint dispatches to a trusted registered CLI without
+# interpreting the environment-selected runtime as a shell command.
+agent:
+	@python3 scripts/agent.py
+
 codex:
+	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex
+
+# The OpenCode V2 CLI is installed only when enabled under [[agents]].
+# Do not publish the agent API as a host port.
+opencode:
+	@python3 scripts/dependencies.py require-agent --name opencode
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
+
+opencode-mcp:
+	@python3 scripts/dependencies.py require-agent --name opencode
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode mcp list
+
+opencode-serve:
+	@python3 scripts/dependencies.py require-agent --name opencode
+	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode serve --hostname 127.0.0.1 --port 4096
 
 shell:
 	$(COMPOSE) exec agent bash

@@ -1,9 +1,14 @@
-# Universal dependencies and Agent Tools
+# Universal dependencies, coding agents and Agent Tools
 
-This repository builds a language-neutral Debian 13 base, then Codex,
-then a configurable Dependencies layer, then Project. Go is NOT installed
-in the base. Serena is optional and never requires Go unless the configured
-language/toolchain actually uses it.
+The normal image chain is **Debian 13 Base → Dependencies → Project**.
+Only enabled `[[agents]]` are installed into the Dependencies image.
+By default Codex is enabled and OpenCode is disabled, preserving the old
+runtime unless a user explicitly changes the manifest. No coding CLI, Go SDK,
+Node.js/npm or Serena is installed in the Base image.
+
+The legacy Codex image target is available for manually reproducing earlier
+builds, but `make build` does **not** depend on it. Serena remains an optional
+`[[agent_tools]]` MCP dependency, separate from coding runtimes.
 
 All installation steps live in dependencies/dependencies.toml.
 The host generator is Python 3.11+ standard library (tomllib); all
@@ -23,6 +28,8 @@ Generated files are under ignored .generated/:
   Containerfile.tool-<id>
   compose.tools.yaml
   codex-mcp.toml
+  opencode-mcp.json
+  agents-enabled.txt
   project-commands.json
   manifest.json
 
@@ -50,22 +57,93 @@ files; always use trusted distribution packages and verify their checksums.
 Installing arbitrary scripts, apt post-install scripts and .deb packages
 executes untrusted instructions as image-root: REVIEW them before enabling.
 Do not put secrets in build arguments, shell commands or copied files.
-Rootless Podman is the intended builder. For reproducibility pin versions,
-download artifact checksums and base image digest (when released).
+Rootless Podman is the intended builder. Pin dependency versions and verify
+checksums/digests where reproducibility matters. **OpenCode intentionally
+uses the latest upstream release** when its installer actually executes;
+that agent currently has no version-pinning feature.
+
+## Independently installed coding agents: [[agents]]
+
+`dependencies/dependencies.toml` declares each coding runtime with its
+`id`, explicit `enabled` boolean, ordered `[[agents.install]]` steps
+and `[agents.state]` path. The shared registry
+`config/agent-runtimes.json` maps runtime IDs to their launch argv.
+`AGENT_RUNTIME` in `.env` chooses an **already installed** runtime for
+`make agent`; it does not implicitly install disabled packages.
+
+```toml
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
+[[agents]]
+id = "opencode"
+enabled = false
+
+[[agents.install]]
+type = "script"
+file = "install-opencode.sh"
+verify = ["opencode --version"]
+
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
+```
+
+The Codex installer downloads the official **complete standalone runtime**
+including managed daemon support. The OpenCode V2 installer fetches a
+**latest available native CLI** using the official shell installer,
+**without a version argument or Node.js/npm**. The version check only
+verifies that `opencode --version` runs; it does not compare numbers. Install `nodejs`/`npm` separately under `[apt]`,
+`[[install]]` or `[[agent_tools.install]]` only when needed by an MCP
+server, a Node-based project or another tool.
+
+When Codex is enabled, `/root/.codex` is mounted using the existing
+`CODEX_STATE_VOLUME` environment preference (including legacy named-volume
+migration). When disabled, neither this state nor the Codex CLI is mounted
+or installed. OpenCode uses its own project-keyed persistent volume under
+`./volumes/opencode`, and its read-only custom provider config is supplied
+from gitignored `config/opencode.jsonc` outside `PROJECT_DIR`.
+
+Podman can reuse an existing installation layer on repeated builds;
+"latest" describes fresh installer execution, not an automatic update on
+every invocation of `make build`. The explicit cache-free refresh command
+is documented in [OpenCode runtime setup](opencode.md).
+
+Changing either `enabled` value requires `make build`, then
+`make recreate-agent` (after closing active sessions), and `make up` for
+filtered Web egress. Switching `AGENT_RUNTIME` between **already installed**
+runtimes needs only another `make agent` command.
+
+See [OpenCode runtime setup](opencode.md) and its
+[manual ProxyAPI smoke test](opencode-smoke-test.md).
 
 ## Generic Agent Tools
 
-Agent Tools are repeated [[agent_tools]] tables with id, enabled,
-kind ("cli" or "mcp"), placement ("embedded", "sidecar", "external"),
+Agent Tools are separate repeated [[agent_tools]] tables with id, enabled,
+kind ("cli" helper or "mcp"), placement ("embedded", "sidecar", "external"),
 optional repeated [[agent_tools.install]], and integration/runtime.
+**Do not declare Codex or OpenCode here** — they belong in [[agents]].
 
 - embedded + CLI: installed in agent image and used via PATH/shell.
-- embedded + MCP stdio: Codex launches the executable as a child process
-  on demand from generated [mcp_servers.<id>] in /etc/codex/config.toml.
+- embedded + MCP stdio: enabled Codex and/or OpenCode can each launch the
+  shared executable as an MCP child process. Registration is generated in
+  `/etc/codex/config.toml` and `/etc/opencode/opencode.json`.
 - sidecar + MCP HTTP: a separate generated image built on plain Debian
-  Base (NO Codex auth), connected to internal bridge; Codex gets an HTTP
-  MCP URL and unique per-COMPOSE_PROJECT_NAME DNS alias.
-- external + MCP HTTPS: only a Codex URL registration; no local image.
+  Base (without agent credentials), connected to the internal bridge;
+  each enabled MCP client receives the internal HTTP URL and the sidecar's
+  project-qualified DNS alias.
+- external + MCP HTTPS: a URL registration for each enabled MCP client,
+  with no locally installed executable or image.
 
 Embedded tools and sidecars may optionally declare the same generic state
 block, without any special Serena logic:
@@ -199,10 +277,16 @@ merely testing whether clangd is on PATH.
 
 1. Edit dependencies/dependencies.toml (copy individual entries from examples).
 2. Run make deps-validate and make deps-plan.
-3. Run make build (or make build-project if Base and Codex images exist).
-4. Run make up (first-time creation) and make doctor; make remote-start if needed.
-   On later restarts after make stop, use make start instead of make up.
-5. Check codex mcp list from agent shell.
+3. Run make build (or make build-project if the Base image already exists).
+4. For a new deployment use `make up`; after changing an existing image,
+   close agent sessions, run `make recreate-agent`, then `make up`.
+   Run `make doctor`; `make remote-start` is Codex-only and requires
+   Codex enabled. For a previously `make stop`ped deployment, use
+   `make start` instead of `make up`.
+5. Check the active client's MCP registration: `make opencode-mcp` for
+   enabled OpenCode, or `make agent AGENT_RUNTIME=codex` and inspect MCP
+   tools in Codex when enabled. Test an actual Serena tool call in the
+   workspace, not just a listed server name.
 
 `make deps-build` rebuilds Dependencies and enabled sidecar images.
 `make deps-tools-up` starts only enabled sidecars. Before provisioning,
@@ -216,8 +300,8 @@ Agent Tools overlay. `make offline` starts enabled internal sidecars before the 
 `make offline-example`
 starts the overlay together with PostgreSQL/Redis. No Squid or
 direct outbound route is attached to offline agents/sidecars.
-`make recreate-agent` replaces only the agent, retaining persistent
-CODEX_HOME and Serena data. `make start` intentionally does **not**
+`make recreate-agent` replaces only the agent, retaining enabled Codex
+and/or OpenCode persistent state and Serena data. `make start` intentionally does **not**
 reconcile tools: it restores only previously saved containers.
 
 IMPORTANT: Changing dependencies currently requires a deliberate rebuild
@@ -226,8 +310,8 @@ install arbitrary new scripts or recompile an existing image.
 
 ### Resume an existing Compose deployment
 
-`make stop` finds all running/paused containers with either compatible
-Compose project label matching `COMPOSE_PROJECT_NAME` (agent, Squid, optional
+`make stop` finds all running/paused Compose-managed services whose
+project label matches `COMPOSE_PROJECT_NAME` (agent, Squid, optional
 PostgreSQL/Redis and sidecars), stores their IDs and original states in
 `.state/lifecycle-<project-key>.json`, then gracefully stops them.
 `make start` resumes exactly that set of containers, using `podman start`
@@ -238,9 +322,12 @@ These targets apply to whichever Compose services were **previously created**,
 including the extra example and agent tool profiles; `make stop` does not
 implicitly initialize an unset profile. Container service dependencies
 start before the agent. The checkpoint is scoped to the same project-key
-used by Codex state, and project labels/mounts are checked again before
-starting. If IDs no longer exist or mount configuration changed, `make start`
-fails safely. Repeated `make stop` without a start does not erase recovery
+used by Codex state. `make start` checks the saved container IDs and
+project/service labels before starting; neither `make stop` nor
+`make start` verifies workspace or agent-state mounts. Container
+creation/recreation remains responsible for those checks. If a saved ID
+was replaced or relabeled, `make start` fails without restarting other
+services. Repeated `make stop` without a start does not erase recovery
 data; successful `make start` clears the checkpoint.
 
 `make up`/`make up-example` remain the provisioning/updating commands
@@ -252,7 +339,7 @@ Stopping/restarting preserves bind-mounted Codex/Serena data, the workspace,
 PostgreSQL named volume, and the writable layer of each existing container.
 It **does not preserve running processes or RAM**. In particular the example
 Redis has both RDB saves and AOF disabled and loses volatile keys after stop.
-Close active Codex sessions before calling `make stop`.
+Close active Codex/OpenCode sessions before calling `make stop`.
 
 
 

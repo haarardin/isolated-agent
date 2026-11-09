@@ -1,6 +1,11 @@
 # Codex configuration
 
-This project intentionally separates three types of Codex state.
+This page describes **Codex only**. Codex is optional: the CLI is installed
+and `/root/.codex` is mounted only when `[[agents]] id = "codex"` has
+`enabled = true` in `dependencies/dependencies.toml`. OpenCode has
+separate persistent state and provider settings; see
+[OpenCode runtime](opencode.md). This project separates three types of
+Codex state.
 
 ## 1. Image defaults
 
@@ -24,7 +29,12 @@ Mounted by Compose at:
 
 It contains authentication and Codex-managed persistent state.
 
-Rebuilding an image must not erase it. By default, `CODEX_HOME` is bind-mounted from `./volumes/codex/<project-key>` in the root of the isolated-agent checkout; the directory is created automatically before container startup. A bare Podman volume name remains supported for legacy projects.
+Rebuilding an image must not erase it. **With Codex enabled**, `CODEX_HOME`
+is bind-mounted from `./volumes/codex/<project-key>` in the root of the
+isolated-agent checkout; the directory is created automatically before
+container startup. When Codex is disabled, this state is neither prepared
+nor mounted by normal provisioning. A bare Podman volume name remains
+supported for enabled legacy Codex installations.
 
 The startup script only refreshes the image-owned global `AGENTS.md`; it does not clear or recreate the rest of the directory.
 
@@ -61,9 +71,10 @@ isolated-agent/
   Makefile
   .env
   volumes/
-    codex/<project-key>/        -> /root/.codex
-    tools/...                  -> optional Agent Tool state
-    serena/<project-key>/       -> /root/.serena (only with a declared Serena tool)
+    codex/<project-key>/        -> /root/.codex (only when Codex enabled)
+    opencode/<project-key>/     -> /root/.isolated-opencode (only when OpenCode enabled)
+    tools/...                   -> optional Agent Tool state
+    serena/<project-key>/       -> /root/.serena (only when Serena enabled)
 ```
 
 In `.env` (the defaults are also in `.env.example`):
@@ -84,7 +95,7 @@ subdirectories and volume identity markers.
 
 ```bash
 make memory-info     # print exact resolved paths (no credentials)
-make up              # prepares Codex state and enabled Agent Tool state
+make up              # prepares state for enabled agents and Agent Tools
 make recreate-agent  # deploy updated mount if agent already existed
 make remote-start    # only for Remote Control
 ```
@@ -93,7 +104,8 @@ make remote-start    # only for Remote Control
 Serena's persistent directory is configured through
 `[agent_tools.state]` in `dependencies/dependencies.toml`, not `.env`.
 The `volumes/` tree is gitignored. **Do not commit or share it**:
-it includes Codex authentication and session history.
+it may include Codex and/or OpenCode authentication and session history,
+plus Serena configuration and memories.
 
 Named volumes are **still supported for compatibility**. When
 `CODEX_STATE_VOLUME` is a bare name without a slash or leading

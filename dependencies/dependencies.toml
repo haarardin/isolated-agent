@@ -1,4 +1,4 @@
-# Universal dependencies for Debian 13 + Codex; no default language SDK.
+# Universal dependencies on Debian 13; coding runtimes are optional [[agents]].
 [base]
 image = "debian:13-slim"
 
@@ -32,7 +32,40 @@ packages = []
 # type = "command"
 # run = "echo 'custom trusted command'"
 
-# Optional generic Agent Tools: see dependencies/examples/go-serena.toml
+# AI coding runtimes are first-class, independently enabled agents.
+# AGENT_RUNTIME in .env only selects which ALREADY ENABLED agent runs.
+# Disabling either agent omits its CLI installation and runtime mount.
+# OpenCode's native shell installer needs NO Node.js/npm.
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+# The host's CODEX_STATE_VOLUME and legacy named-volume options remain
+# authoritative for this target to preserve existing Codex sessions.
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
+[[agents]]
+id = "opencode"
+enabled = false
+
+[[agents.install]]
+type = "script"
+file = "install-opencode.sh"
+verify = ["opencode --version"]
+
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
+
+# Optional MCP / supporting tools are configured separately as [[agent_tools]].
+# See dependencies/examples/go-opencode-serena.toml for Serena + Go.
 
 [project]
 # test = "go test ./..."

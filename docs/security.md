@@ -3,11 +3,15 @@
 Rootless Podman remains the **primary** sandbox. The agent is container
 root mapped to an unprivileged host user. Runtime image root filesystem
 is read-only, Linux capabilities are all dropped, and `no-new-privileges`
-is enabled. The agent mounts the approved PROJECT_DIR, the full
-Codex state (`/root/.codex`: a project-scoped bind directory by
-default, or an existing explicitly named legacy volume), and
-the `agent-cache` named volume. Optional Serena global state is
-bind-mounted from its own project-scoped directory by default.
+is enabled. The agent mounts the approved PROJECT_DIR and the
+`agent-cache` named volume. **Codex state** (`/root/.codex`) is mounted
+only if Codex is enabled, using a project-scoped bind directory by
+default or an explicitly selected legacy named volume. **OpenCode state**
+(`/root/.isolated-opencode`) is mounted only if OpenCode is enabled,
+from its own project-scoped directory. Its provider config is a
+separate **read-only** mount from this checkout's ignored
+`config/opencode.jsonc`. Optional Serena global state is bind-mounted
+from its own project-scoped directory by default.
 Agent Tools may declare additional reviewed state mounts.
 An image-baked symlink maps
 `/root/Documents` to the existing `/workspace` host bind for projectless
@@ -31,7 +35,8 @@ approved host `PROJECT_DIR`. Because remote users already have code
 execution authority within the writable workspace, use a disposable
 directory for untrusted experiments. The root remains read-only.
 
-The persisted `/root/.codex` state contains sensitive auth tokens,
+When Codex is enabled, the persisted `/root/.codex` state contains
+sensitive auth tokens,
 session history, daemon settings and pairing/enrollment state. Its
 default host bind directory survives normal `down`/recreation and
 `make reset-state`; this command **does** remove applicable labeled
@@ -83,7 +88,8 @@ A populated legacy volume without the marker requires deliberate
 one-time CODEX_BIND_EXISTING_STATE=true.
 
 Additional tool state is mounted only when declared through
-`[agent_tools.state]` in the active manifest. Serena (if enabled)
+`[agent_tools.state]` in the active manifest. Each enabled coding
+runtime declares state separately through `[agents.state]`. Serena (if enabled)
 may persist its global state in `./volumes/serena/<project-key>`;
 project-specific memories remain in `PROJECT_DIR/.serena/memories/`.
 Host bind state directories survive container deletion and are excluded
@@ -98,4 +104,15 @@ Declarative Agent Tool state cannot shadow protected mounts
 or another enabled tool's state mount. Disabled managed Sidecars are
 reconciled within their Compose project without removing persistent state.
 Never share one CODEX_HOME among concurrently running agents
-(SQLite and credential isolation). Backup only after stopping Codex.
+(SQLite and credential isolation). OpenCode's own state can contain
+equally sensitive provider tokens and sessions. Back up state only
+after the relevant agent processes have stopped.
+
+`make stop` and `make start` are **existing-container lifecycle**
+operations: they use the configured Compose project/service labels,
+not workspace or agent-state mount verification. `make start` also
+checks the saved container IDs/labels. For changed workspaces, agent
+selection, mounts or images, use the provisioning path
+(`make build` / `make recreate-agent` / `make up`) with its mount
+checks instead of relying on `make start`. Do not reuse
+`COMPOSE_PROJECT_NAME` across unrelated deployments.
