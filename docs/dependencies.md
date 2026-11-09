@@ -1,9 +1,14 @@
-# Universal dependencies and Agent Tools
+# Universal dependencies, coding agents and Agent Tools
 
-This repository builds a language-neutral Debian 13 base, then Codex,
-then a configurable Dependencies layer, then Project. Go is NOT installed
-in the base. Serena is optional and never requires Go unless the configured
-language/toolchain actually uses it.
+The normal image chain is **Debian 13 Base → Dependencies → Project**.
+Only enabled `[[agents]]` are installed into the Dependencies image.
+By default Codex is enabled and OpenCode is disabled, preserving the old
+runtime unless a user explicitly changes the manifest. No coding CLI, Go SDK,
+Node.js/npm or Serena is installed in the Base image.
+
+The legacy Codex image target is available for manually reproducing earlier
+builds, but `make build` does **not** depend on it. Serena remains an optional
+`[[agent_tools]]` MCP dependency, separate from coding runtimes.
 
 All installation steps live in dependencies/dependencies.toml.
 The host generator is Python 3.11+ standard library (tomllib); all
@@ -23,6 +28,8 @@ Generated files are under ignored .generated/:
   Containerfile.tool-<id>
   compose.tools.yaml
   codex-mcp.toml
+  opencode-mcp.json
+  agents-enabled.txt
   project-commands.json
   manifest.json
 
@@ -53,11 +60,72 @@ Do not put secrets in build arguments, shell commands or copied files.
 Rootless Podman is the intended builder. For reproducibility pin versions,
 download artifact checksums and base image digest (when released).
 
+## Independently installed coding agents: [[agents]]
+
+`dependencies/dependencies.toml` declares each coding runtime with its
+`id`, explicit `enabled` boolean, ordered `[[agents.install]]` steps
+and `[agents.state]` path. The shared registry
+`config/agent-runtimes.json` maps runtime IDs to their launch argv.
+`AGENT_RUNTIME` in `.env` chooses an **already installed** runtime for
+`make agent`; it does not implicitly install disabled packages.
+
+```toml
+[[agents]]
+id = "codex"
+enabled = true
+
+[[agents.install]]
+type = "script"
+file = "install-codex.sh"
+verify = ["codex --version"]
+
+[agents.state]
+base = "./volumes/codex"
+target = "/root/.codex"
+
+[[agents]]
+id = "opencode"
+enabled = false
+
+[[agents.install]]
+type = "script"
+file = "install-opencode.sh"
+args = ["2.0.0"]
+verify = ["opencode --version"]
+
+[agents.state]
+base = "./volumes/opencode"
+target = "/root/.isolated-opencode"
+```
+
+The Codex installer downloads the official **complete standalone runtime**
+including managed daemon support. The OpenCode V2 installer fetches a
+version-pinned **native executable with a shell installer**, **without
+Node.js/npm**. Install `nodejs`/`npm` separately under `[apt]`,
+`[[install]]` or `[[agent_tools.install]]` only when needed by an MCP
+server, a Node-based project or another tool.
+
+When Codex is enabled, `/root/.codex` is mounted using the existing
+`CODEX_STATE_VOLUME` environment preference (including legacy named-volume
+migration). When disabled, neither this state nor the Codex CLI is mounted
+or installed. OpenCode uses its own project-keyed persistent volume under
+`./volumes/opencode`, and its read-only custom provider config is supplied
+from gitignored `config/opencode.jsonc` outside `PROJECT_DIR`.
+
+Changing either `enabled` value requires `make build`, then
+`make recreate-agent` (after closing active sessions), and `make up` for
+filtered Web egress. Switching `AGENT_RUNTIME` between **already installed**
+runtimes needs only another `make agent` command.
+
+See [OpenCode runtime setup](opencode.md) and its
+[manual ProxyAPI smoke test](opencode-smoke-test.md).
+
 ## Generic Agent Tools
 
-Agent Tools are repeated [[agent_tools]] tables with id, enabled,
-kind ("cli" or "mcp"), placement ("embedded", "sidecar", "external"),
+Agent Tools are separate repeated [[agent_tools]] tables with id, enabled,
+kind ("cli" helper or "mcp"), placement ("embedded", "sidecar", "external"),
 optional repeated [[agent_tools.install]], and integration/runtime.
+**Do not declare Codex or OpenCode here** — they belong in [[agents]].
 
 - embedded + CLI: installed in agent image and used via PATH/shell.
 - embedded + MCP stdio: Codex launches the executable as a child process
@@ -199,7 +267,7 @@ merely testing whether clangd is on PATH.
 
 1. Edit dependencies/dependencies.toml (copy individual entries from examples).
 2. Run make deps-validate and make deps-plan.
-3. Run make build (or make build-project if Base and Codex images exist).
+3. Run make build (or make build-project if the Base image already exists).
 4. Run make up (first-time creation) and make doctor; make remote-start if needed.
    On later restarts after make stop, use make start instead of make up.
 5. Check codex mcp list from agent shell.
