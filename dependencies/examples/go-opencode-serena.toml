@@ -35,7 +35,6 @@ enabled = true
 [[agents.install]]
 type = "script"
 file = "install-opencode.sh"
-args = ["2.0.0"]
 verify = ["opencode --version"]
 
 [agents.state]
