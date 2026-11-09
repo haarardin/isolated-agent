@@ -318,7 +318,7 @@ url="http://unsafe.example/mcp"
         doctor = doctor_path.read_text()
         wrapper = (ROOT / "scripts/opencode.sh").read_text()
         self.assertIn("/usr/local/bin/isolated-agent-opencode --version", doctor)
-        self.assertNotIn("\\n    opencode --version\\n", doctor)
+        self.assertNotIn("    opencode --version", doctor.splitlines())
         self.assertLess(
             doctor.index("test -w /root/.isolated-opencode"),
             doctor.index("/usr/local/bin/isolated-agent-opencode --version"),
