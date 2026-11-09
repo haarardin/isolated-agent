@@ -4,6 +4,16 @@
 # Runs inside the Dependencies image build only, never on the host.
 set -Eeuo pipefail
 
+# Accept all documented CLI spellings without hiding a version mismatch:
+#   2.0.0, v2.0.0, opencode 2.0.0, opencode v2.0.0.
+verify_opencode_version() {
+  local actual="$1" expected="$2"
+  actual="${actual#opencode }"
+  actual="${actual#v}"
+  [[ "$actual" == "$expected" ]]
+}
+
+main() {
 version="${1:-2.0.0}"
 [[ "$version" =~ ^2\.[0-9]+\.[0-9]+$ ]] || {
   echo "ERROR: expected a pinned OpenCode V2 release (e.g. 2.0.0)" >&2
@@ -25,9 +35,16 @@ test -x "$HOME/.opencode/bin/opencode" || {
 }
 install -m 0755 "$HOME/.opencode/bin/opencode" /usr/local/bin/opencode
 actual="$(opencode --version)"
-[[ "$actual" == "$version" || "$actual" == "v$version" ]] || {
+verify_opencode_version "$actual" "$version" || {
   echo "ERROR: expected OpenCode $version, got $actual" >&2
   exit 1
 }
 # Keep only the selected binary, not install-time launcher files.
 rm -rf "$HOME/.opencode/bin"
+
+}
+
+# Allow importing the pure checker in regression tests without installing.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
