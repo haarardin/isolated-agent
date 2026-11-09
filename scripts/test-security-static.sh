@@ -29,12 +29,13 @@ assert "ipv6_enabled" in netcode and "IPv6Enabled" in netcode
 assert "internal: true" not in agent  # validated in actual Podman inspect
 assert "ipam:" not in agent  # managed per-project by network-ensure
 assert agent.count("      - isolated-dev")==1
-assert "target: /root/.codex" in agent
-assert "source: ${CODEX_STATE_MOUNT_SOURCE:-" in agent
+assert "target: /root/.codex" in Path("scripts/dependencies.py").read_text()
+assert "source: ${CODEX_STATE_MOUNT_SOURCE:-" in Path("scripts/dependencies.py").read_text()
 assert "prepare-state:" in mk
 assert "scripts/prepare-state.py" in mk
 assert "CODEX_STATE_VOLUME ?= ./volumes/codex" in mk
 assert "agent-cache:/root/.cache" in agent
+assert "target: /root/.codex" not in agent, "Codex mount must be conditional"
 # Remote defaults to ~/Documents. It must resolve to the existing approved
 # workspace via an image-owned symlink, NOT a second host bind mount.
 assert '${PROJECT_DIR:-./workspace}:/workspace:rw' in agent
