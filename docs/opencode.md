@@ -90,20 +90,17 @@ binary** on later `make build` runs, so a repeated build is not guaranteed
 to upgrade OpenCode. To force retrieval of the latest release explicitly:
 
 ```bash
-make deps-generate
-podman build --no-cache \
-  -f .generated/Containerfile.dependencies \
-  --build-arg BASE_IMAGE=localhost/isolated-agent-base:dev \
-  -t localhost/isolated-agent-dependencies:dev .
-make build-project
+make build DEPS_NO_CACHE=true
 make recreate-agent
 make up
 ```
 
-This rebuilds the dependencies layer without its build cache, including any
-other enabled dependencies. Ordinary `make build` remains the recommended
-path for the first installation and configuration changes. Do not run this
-while interactive agents are active; terminate those sessions first.
+`DEPS_NO_CACHE=true` passes `--no-cache` to the Dependencies image build
+and fetches a fresh upstream OpenCode CLI. It also rebuilds other enabled
+dependencies, potentially downloading or installing them again. Ordinary
+`make build` can reuse cache and is recommended for the first installation
+and most configuration changes. Close active agent sessions before
+recreating the container.
 
 ## Provider configuration outside /workspace
 
