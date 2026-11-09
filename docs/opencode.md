@@ -49,7 +49,6 @@ enabled = true
 [[agents.install]]
 type = "script"
 file = "install-opencode.sh"
-args = ["2.0.0"]
 verify = ["opencode --version"]
 
 [agents.state]
@@ -60,8 +59,11 @@ target = "/root/.isolated-opencode"
 - `install-codex.sh` installs the **complete** official Codex standalone
   runtime, including the managed Remote Control app-server components.
 - `install-opencode.sh` downloads **only the native V2 CLI** using
-  `https://opencode.ai/v2/install` with a pinned version and
-  `--no-modify-path`. **Node.js and npm are not installed for OpenCode.**
+  `https://opencode.ai/v2/install` with `--no-modify-path` and **without
+  a version argument**. It selects the latest available upstream release
+  when that build step actually runs. **Node.js and npm are not installed
+  for OpenCode.** The `verify = ["opencode --version"]` step only checks
+  that the CLI starts; it never compares version numbers.
   They can be installed independently under `[apt].packages`/`[[install]]`
   or an MCP's `[[agent_tools.install]]` if a tool or application needs them.
 - `agents.state` controls per-project persistent OpenCode state. For Codex,
@@ -78,6 +80,30 @@ target = "/root/.isolated-opencode"
 Examples: Codex only (default): `codex=true`, `opencode=false`;
 OpenCode only: `codex=false`, `opencode=true`;
 both: `codex=true`, `opencode=true`.
+
+### Updating OpenCode
+
+There is no OpenCode version setting, version comparison, or background
+updater in this PR. On a fresh image build, the official installer resolves
+the latest release. **Podman layer caching can reuse a previously installed
+binary** on later `make build` runs, so a repeated build is not guaranteed
+to upgrade OpenCode. To force retrieval of the latest release explicitly:
+
+```bash
+make deps-generate
+podman build --no-cache \
+  -f .generated/Containerfile.dependencies \
+  --build-arg BASE_IMAGE=localhost/isolated-agent-base:dev \
+  -t localhost/isolated-agent-dependencies:dev .
+make build-project
+make recreate-agent
+make up
+```
+
+This rebuilds the dependencies layer without its build cache, including any
+other enabled dependencies. Ordinary `make build` remains the recommended
+path for the first installation and configuration changes. Do not run this
+while interactive agents are active; terminate those sessions first.
 
 ## Provider configuration outside /workspace
 
