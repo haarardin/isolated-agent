@@ -144,6 +144,18 @@ container with stale agent-state mounts.
 
 ## E. Verify the active binaries and mounts
 
+In the OpenCode-only container, `make doctor` invokes the **OpenCode
+wrapper**, not the bare native executable. Even `opencode --version`
+initializes its log file; direct invocation without XDG environment
+overrides would try to write under `/root/.local/share/opencode/log/`
+and fail on the intentionally read-only root filesystem. The wrapper
+uses `/root/.isolated-opencode/{config,data,state}` in the existing
+writable persistent volume, while `/root/.cache` remains the writable
+cache. If updating only `scripts/doctor.sh`, run `git pull --ff-only`
+and rerun `make doctor`; **no image rebuild or agent recreation is
+needed** for this host-side doctor fix.
+
+
 ```bash
 bash scripts/compose.sh exec agent \
   /usr/local/bin/isolated-agent-opencode --version
@@ -271,6 +283,11 @@ Codex runtime; it is not an OpenCode server.
 - `make agent` starts the wrong CLI: inspect `AGENT_RUNTIME` in `.env`.
 - `disabled in [[agents]]`: enable that runtime; run `make build`,
   `make recreate-agent`, `make up`.
+- `make doctor` fails with `EROFS` writing
+  `/root/.local/share/opencode/log/opencode.log`: update the branch
+  and rerun `make doctor`. The doctor must execute
+  `/usr/local/bin/isolated-agent-opencode --version`, not the bare CLI;
+  preserve `read_only: true` and the persistent XDG state mount.
 - `opencode not found`: verify build logs for native installer,
   `install-opencode.sh` and selected agent flags. No Node/npm needed.
 - The CLI may print a version with an arbitrary prefix or release number.
