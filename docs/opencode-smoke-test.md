@@ -58,7 +58,6 @@ enabled = true
 [[agents.install]]
 type = "script"
 file = "install-opencode.sh"
-args = ["2.0.0"]
 verify = ["opencode --version"]
 
 [agents.state]
@@ -68,8 +67,9 @@ target = "/root/.isolated-opencode"
 
 The actual `codex` entry with its install/state sections appears earlier
 in the same TOML file; do not replace the whole document with this snippet.
-OpenCode installs through its **official version-pinned standalone shell
-installer**; the Debian Base does not install Node or npm.
+OpenCode installs through its **official standalone shell installer** without
+any version argument; the installer selects the latest release at build time.
+The Debian Base does not install Node or npm.
 
 Alternatively enable **both** agents by setting both `enabled = true`,
 then switch only `AGENT_RUNTIME` to choose the CLI at launch.
@@ -149,9 +149,9 @@ bash scripts/compose.sh exec agent sh -c \
 make agent
 ```
 
-Expected: OpenCode 2.x version; state/config tests exit zero; `make agent`
-opens OpenCode, **not Codex**. The version is pinned in
-`dependencies/dependencies.toml`.
+Expected: a successfully reported OpenCode CLI version (whatever the current
+upstream release is); state/config tests exit zero; `make agent` opens
+OpenCode, **not Codex**. No version is pinned in the manifest.
 
 For OpenCode-only (and no other Node dependencies), also check:
 
@@ -267,11 +267,12 @@ Codex runtime; it is not an OpenCode server.
   `make recreate-agent`, `make up`.
 - `opencode not found`: verify build logs for native installer,
   `install-opencode.sh` and selected agent flags. No Node/npm needed.
-- Installer displays `opencode v2.0.0`: this is the normal output of the
-  pinned V2 CLI. The build validates this full version banner (and also
-  accepts `2.0.0`/`v2.0.0`); a different version still fails. If an older
-  checkout rejected the banner, pull the PR branch and rerun `make build`.
-  Podman can reuse successfully cached earlier build layers.
+- The CLI may print a version with an arbitrary prefix or release number.
+  Installation succeeds whenever the binary is executable and
+  `opencode --version` exits successfully. There is **no** strict version
+  pattern or comparison. A repeat `make build` may reuse the previous
+  Podman image layer instead of downloading the latest upstream release;
+  for a deliberate refresh see `docs/opencode.md` → Updating OpenCode.
 - Missing local provider config: copy the example to
   `config/opencode.jsonc`; symlinks are rejected.
 - Stale agent mounts error: stop active tasks and run `make recreate-agent`.
