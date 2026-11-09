@@ -116,6 +116,12 @@ bash scripts/test-security-static.sh
 make build
 ```
 
+The dependency and runtime-dispatch tests are designed to run whether your
+local `dependencies/dependencies.toml` enables Codex-only, OpenCode-only,
+both, or neither: test cases explicitly set the agent combinations they
+exercise, rather than assuming Codex is enabled in your edited manifest.
+You do **not** need to enable Codex just to run the tests.
+
 Expected: Base, Dependencies and Project images build successfully.
 `make build` no longer needs the old standalone Codex image stage.
 If `codex.enabled=false`, Codex is **not installed** in the new Dependencies
