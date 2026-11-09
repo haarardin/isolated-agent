@@ -1,15 +1,16 @@
 # Agent network isolation (rootless Podman)
 
-For the exact ordered commands to start the filtered online agent and
-pair an Android device, see
-[REMOTE-START.md](REMOTE-START.md). The network migration below is
-**conditional**, not part of a fresh installation.
+For general agent setup see [README](../README.md#quick-start).
+For the Codex-only Android Remote Control procedure, see
+[REMOTE-START.md](REMOTE-START.md). Network isolation applies equally to
+Codex-only, OpenCode-only and dual-agent containers. The network
+migration below is **conditional**, not part of a fresh installation.
 
 ## Separate Compose and network identities
 
 `COMPOSE_PROJECT_NAME` scopes a deployment's Compose containers and
-named volumes; the default Codex/Serena host bind state is also keyed
-by this identity and canonical `PROJECT_DIR`.
+named volumes; enabled Codex/OpenCode/Serena host bind state is also
+keyed by this identity and canonical `PROJECT_DIR`.
 **`AGENT_NETWORK_NAME` separately names its Podman bridge.**
 Leave the latter unset for the previous default
 `<COMPOSE_PROJECT_NAME>_isolated-dev`.
@@ -86,7 +87,7 @@ the way to switch to a shared network.
 ## Topology
 
 ```text
-Codex agent (internal-only network, AGENT_SUBNET)
+Coding agent (Codex and/or OpenCode; internal-only network, AGENT_SUBNET)
      |             |                 |
  /workspace     postgres          redis
      |
@@ -164,7 +165,7 @@ A collision involving somebody else's network must be resolved by
 choosing a distinct AGENT_SUBNET, **not** running migration.
 
 ```bash
-# Save Codex sessions; backup persistent state before migrating.
+# Save active Codex/OpenCode sessions; back up enabled agent/tool state before migrating.
 make preflight
 # ONLY if it rejects the old network owned by this Compose project
 # as internal:false, and only after saving active work:
