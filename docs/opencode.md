@@ -21,8 +21,10 @@ cp config/opencode.example.jsonc config/opencode.jsonc
 
 `config/opencode.jsonc` is gitignored and is mounted read-only at
 `/opt/isolated-agent/opencode-user.jsonc` inside the container. The launcher
-sets `OPENCODE_CONFIG` to that path. **The file is not baked into any image,
-not copied into the workspace, and not exposed to the Codex CLI.**
+sets `OPENCODE_CONFIG` to that path. **The file is not baked into any image
+or copied into the workspace.** Codex does not load it as its own config,
+but both CLIs share the same container user, so this file is not a secrecy
+boundary between Codex and OpenCode.
 Neither the optional CLI nor this config requires a project-level
 `PROJECT_DIR/opencode.jsonc`; do not create one. The project itself can
 still supply a higher-precedence project config, so inspect that if behavior
