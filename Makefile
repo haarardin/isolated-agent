@@ -27,8 +27,14 @@ AGENT_REGISTERED_RUNTIMES := $(shell python3 -c 'import json,re; r=json.load(ope
 ifneq ($(filter $(AGENT_REQUESTED_RUNTIME),$(AGENT_REGISTERED_RUNTIMES)),$(AGENT_REQUESTED_RUNTIME))
 $(error Unsupported agent runtime '$(AGENT_REQUESTED_RUNTIME)'; registered: $(AGENT_REGISTERED_RUNTIMES))
 endif
-# A new runtime registered in JSON needs no special Makefile target.
+# A new runtime registered in JSON needs no special Makefile alias.
+# Consume its second Make goal as a no-op, without the default
+# "Nothing to be done for <runtime>" output. Codex/OpenCode already have
+# explicit direct-launch targets below, so avoid duplicate recipes.
 .PHONY: $(AGENT_REQUESTED_RUNTIME)
+ifneq ($(filter $(AGENT_REQUESTED_RUNTIME),codex opencode),$(AGENT_REQUESTED_RUNTIME))
+$(AGENT_REQUESTED_RUNTIME): ; @:
+endif
 endif
 endif
 # A canonical-project-path fingerprint prevents state/history/long-term-memory
@@ -373,7 +379,9 @@ agent:
 # When the same name is the second goal of "make agent <runtime>", do not
 # launch a second session from the legacy direct target.
 codex:
-ifneq ($(AGENT_REQUESTED_RUNTIME),codex)
+ifeq ($(AGENT_REQUESTED_RUNTIME),codex)
+	@:
+else
 	@python3 scripts/dependencies.py require-agent --name codex
 	$(COMPOSE) exec agent codex
 endif
@@ -381,7 +389,9 @@ endif
 # The OpenCode V2 CLI is installed only when enabled under [[agents]].
 # Do not publish the agent API as a host port.
 opencode:
-ifneq ($(AGENT_REQUESTED_RUNTIME),opencode)
+ifeq ($(AGENT_REQUESTED_RUNTIME),opencode)
+	@:
+else
 	@python3 scripts/dependencies.py require-agent --name opencode
 	$(COMPOSE) exec agent /usr/local/bin/isolated-agent-opencode
 endif
