@@ -381,7 +381,7 @@ def verify_opencode_user_config():
 
 
 def prepare_tool_state(data):
-    if any(t["id"] == "opencode" for t in enabled(data)):
+    if agent_enabled(data, "opencode"):
         verify_opencode_user_config()
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "isolated-agent-demo")
     for tool in [*enabled_agents(data), *enabled(data)]:
