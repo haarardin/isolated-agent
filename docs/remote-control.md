@@ -5,8 +5,11 @@ covers both a fresh rootless-Podman installation and upgrading an
 existing agent, then `make remote-start` / `make remote-pair`,
 Android verification, recovery and startup after container recreation.
 
-This is an opt-in mode for the **official Codex CLI** already installed in
-this repository. No desktop GUI, Linux `.deb`, host SSH agent, systemd in
+This is an opt-in mode for the **official Codex CLI**. It requires
+`[[agents]] id = "codex"` with `enabled = true` in
+`dependencies/dependencies.toml`; OpenCode-only containers do not
+include Codex Remote Control. No desktop GUI, Linux `.deb`, host SSH
+agent, systemd in
 the container or incoming TCP listener is required.
 
 For a shared network, set `AGENT_NETWORK_NAME` separately from
@@ -42,20 +45,27 @@ after migration. Modules such as Serena are selected in TOML, not
 via a special Compose profile. Do not delete shared networks.
 Back up valuable state first.
 
-We changed the Codex image and entrypoint so the managed standalone
-binary is seeded into the existing persistent CODEX_HOME volume when
-absent; this does not overwrite tokens or sessions. Rebuild the changed
-image layers, even if make ensure-images would otherwise reuse them:
+The complete managed Codex standalone runtime is installed **only if
+enabled** in the Dependencies image, then seeded into persistent
+`CODEX_HOME` when needed without overwriting tokens or sessions.
+The legacy `make build-codex` target is **not** part of the active build
+chain. Rebuild and redeploy explicitly when changing the agent installation
+or project image:
 
 ```bash
-make build-codex
-make build-project
-make up
-make recreate-agent   # force deployment of the rebuilt image; preserves volumes
-make login             # one-time ChatGPT device authorization
+make deps-validate
+make build           # Base -> Dependencies (enabled Codex) -> Project
+make recreate-agent  # existing deployment: replace agent, preserve state
+make up              # ensure filtered Squid egress
+make login            # first-time device authorization, Codex only
 make doctor
 make network-check
 ```
+
+For a genuinely new deployment without an existing agent container,
+`make up` can follow `make build` directly. To force redownloading a
+fresh Codex CLI rather than reusing a cached image layer, use
+`make build DEPS_NO_CACHE=true`.
 
 **Important:** on an existing installation, a changed project
 `Containerfile` requires `make build-project && make recreate-agent`
@@ -196,11 +206,12 @@ writable.
 
 ## Troubleshooting
 
-- `remote-control` subcommand missing: check `codex --version` and
-  the installed managed CLI; `make build-codex && make build-project`
-  after upgrading images.
+- `remote-control` subcommand missing: first verify that the Codex
+  `[[agents]]` entry is enabled. Check `codex --version` and the managed
+  runtime; to refresh dependencies use `make build DEPS_NO_CACHE=true`,
+  then `make recreate-agent` and `make up`.
 - Managed binary absent: `make remote-start` will fail; check
-  `/root/.codex/packages/standalone/current/codex` through a
+  `/root/.codex/packages/standalone/current/bin/codex` through a
   private `make shell`, and review installer compatibility.
 - Start succeeded but daemon absent: the local check fails; inspect
   daemon implementation/version on that CLI. Do **not** publish a
