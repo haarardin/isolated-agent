@@ -66,8 +66,11 @@ The selection **does not install or enable a runtime**; enabling/disabling
 an agent requires image rebuild and container recreation. A disabled
 agent is rejected before Compose execution.
 
-OpenCode is installed using the official standalone **shell installer**
-at a pinned V2 version — **no Node.js or npm** solely for OpenCode.
+OpenCode is installed using the official standalone **shell installer**, which
+selects the latest available upstream release at installation time — **no
+version pin and no Node.js or npm** solely for OpenCode. Existing Podman
+build layers may be reused; see the [runtime guide](docs/opencode.md) for
+refreshing an installed version.
 Node.js/npm remain optional dependencies for projects or MCP tools.
 
 OpenCode provider/model settings live in the `isolated-agent` checkout,
