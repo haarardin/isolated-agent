@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import tomllib
@@ -314,6 +315,31 @@ url="http://unsafe.example/mcp"
         image = (ROOT / "images/project/Containerfile").read_text()
         self.assertNotIn("config/opencode.jsonc", image)
         self.assertIn("/config/opencode.jsonc", (ROOT / ".gitignore").read_text())
+
+    def test_native_opencode_installer_accepts_version_banner(self):
+        # The standalone V2 executable prints 'opencode v2.0.0', not '2.0.0'.
+        # Source its pure version checker; do not download or install anything.
+        installer = ROOT / "dependencies/scripts/install-opencode.sh"
+        subprocess.run(["bash", "-n", str(installer)], check=True)
+        for output in ("2.0.0", "v2.0.0", "opencode 2.0.0", "opencode v2.0.0"):
+            with self.subTest(output=output):
+                result = subprocess.run(
+                    ["bash", "-c",
+                     'source "$1"; verify_opencode_version "$2" "$3"',
+                     "_", str(installer), output, "2.0.0"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+        for output in ("opencode v2.0.1", "opencode v1.0.0",
+                       "unexpected opencode v2.0.0", "opencode v2.0.0-beta"):
+            with self.subTest(reject=output):
+                result = subprocess.run(
+                    ["bash", "-c",
+                     'source "$1"; verify_opencode_version "$2" "$3"',
+                     "_", str(installer), output, "2.0.0"],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
 
     def test_documented_opencode_go_serena_example(self):
         cfg = deps.parse(ROOT / "dependencies/examples/go-opencode-serena.toml")
