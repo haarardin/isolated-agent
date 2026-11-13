@@ -61,11 +61,22 @@ runtimes, installed through `[[agents]]` entries in
 `dependencies/dependencies.toml`. By default Codex is enabled and
 OpenCode is disabled to preserve existing setups.
 
-The default entrypoint is `make agent`. Select the installed runtime
-using `AGENT_RUNTIME=codex` or `AGENT_RUNTIME=opencode` in `.env`.
-The selection **does not install or enable a runtime**; enabling/disabling
-an agent requires image rebuild and container recreation. A disabled
-agent is rejected before Compose execution.
+The default entrypoint is `make agent`, which uses
+`AGENT_RUNTIME=codex` or `AGENT_RUNTIME=opencode` from `.env`.
+To choose a different installed agent **for one invocation**, run
+`make agent codex` or `make agent opencode` (without editing `.env`).
+The positional runtime takes precedence over `.env` and a Make variable
+override. GNU Make treats the runtime name as a second goal; the Makefile
+validates it against `config/agent-runtimes.json` and consumes that
+goal without launching the agent twice. Future registered runtimes work
+with the same `make agent <runtime>` syntax. Only one optional runtime
+goal is accepted, and `agent` must be the first goal.
+
+Selection **does not install or enable a runtime**: the chosen agent
+must also have `enabled = true` under `[[agents]]`. Changing installed
+agents requires image rebuild and container recreation. Unknown/disabled
+agents fail before Compose is launched. Switching between agents that
+are already installed requires neither a rebuild nor recreation.
 
 OpenCode is installed using the official standalone **shell installer**, which
 selects the latest available upstream release at installation time — **no
@@ -261,7 +272,9 @@ make login
 Start the selected agent (Codex by default):
 
 ```bash
-make agent
+make agent                  # follows AGENT_RUNTIME in .env
+make agent codex            # one-shot Codex override
+make agent opencode         # one-shot OpenCode override
 ```
 
 To use OpenCode instead, set `enabled = true` in its `[[agents]]` entry,
@@ -645,6 +658,8 @@ make start
 make deps-reconcile
 make login
 make agent
+make agent codex
+make agent opencode
 make shell
 make test
 make race

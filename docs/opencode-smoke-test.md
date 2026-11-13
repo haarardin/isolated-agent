@@ -1,8 +1,8 @@
 # Manual acceptance: selectable coding agents / OpenCode V2 + ProxyAPI
 
 Run on the **local Debian 13 rootless-Podman host**. These are manual
-acceptance checks for PR #11, not promises that the current image has
-already been built against a live provider.
+acceptance checks for the selectable coding-agent architecture, not a
+substitute for testing the current image against a live provider.
 
 **Important:** `AGENT_RUNTIME` in `.env` selects which installed coding
 runtime starts, while `[[agents]].enabled` controls **installation**.
@@ -19,7 +19,7 @@ Do not reset Codex state volumes or reveal credentials in logs/issues.
 cd /path/to/isolated-agent
 git status --short
 git fetch origin
-git switch feat/opencode-v2-optional-runtime
+git switch main   # or remain on your intended feature branch
 git pull --ff-only
 
 test -f .env || cp .env.example .env
@@ -292,8 +292,9 @@ For the **dual-agent** configuration, set `codex.enabled=true` and
 switch without rebuilding:
 
 ```bash
-make agent AGENT_RUNTIME=codex
-make agent AGENT_RUNTIME=opencode
+make agent codex           # override .env just for this invocation
+make agent opencode        # override .env just for this invocation
+make agent                 # still uses AGENT_RUNTIME in .env
 ```
 
 If Codex is enabled and not yet authenticated, use `make login`.
@@ -302,7 +303,14 @@ Codex runtime; it is not an OpenCode server.
 
 ## Acceptance and common errors
 
-- `make agent` starts the wrong CLI: inspect `AGENT_RUNTIME` in `.env`.
+- Plain `make agent` starts the wrong CLI: inspect `AGENT_RUNTIME` in `.env`.
+  To bypass the default for one invocation, use `make agent codex` or
+  `make agent opencode`; no `.env` edit, rebuild or recreation is needed
+  when both agents are already enabled.
+- `make agent <runtime>` rejects the runtime: confirm its ID exists in
+  `config/agent-runtimes.json` and is enabled under `[[agents]]` in
+  `dependencies/dependencies.toml`. Only one positional runtime goal is
+  allowed after `agent`.
 - `disabled in [[agents]]`: enable that runtime; run `make build`,
   `make recreate-agent`, `make up`.
 - `make doctor` fails with `EROFS` writing

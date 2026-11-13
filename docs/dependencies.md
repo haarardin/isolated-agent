@@ -69,7 +69,16 @@ that agent currently has no version-pinning feature.
 and `[agents.state]` path. The shared registry
 `config/agent-runtimes.json` maps runtime IDs to their launch argv.
 `AGENT_RUNTIME` in `.env` chooses an **already installed** runtime for
-`make agent`; it does not implicitly install disabled packages.
+plain `make agent`; it does not implicitly install disabled packages.
+To override the `.env` choice for one invocation, use
+`make agent codex`, `make agent opencode`, or `make agent <runtime>` for
+any other ID registered in `config/agent-runtimes.json`. The runtime
+must be listed in `[[agents]]` with `enabled = true`. The positional
+name has precedence over `.env` and command-line `AGENT_RUNTIME`, but
+does **not** install or activate a disabled runtime. GNU Make treats
+this name as a second goal; the Makefile consumes it without a second
+agent launch. Only a single optional registered runtime goal is allowed
+after `agent`; unsupported goals fail before Compose execution.
 
 ```toml
 [[agents]]
@@ -121,8 +130,9 @@ is documented in [OpenCode runtime setup](opencode.md).
 
 Changing either `enabled` value requires `make build`, then
 `make recreate-agent` (after closing active sessions), and `make up` for
-filtered Web egress. Switching `AGENT_RUNTIME` between **already installed**
-runtimes needs only another `make agent` command.
+filtered Web egress. Switching between **already installed** runtimes
+needs only `make agent <runtime>` (or editing `.env` and using `make agent`),
+without an image rebuild or container recreation.
 
 See [OpenCode runtime setup](opencode.md) and its
 [manual ProxyAPI smoke test](opencode-smoke-test.md).

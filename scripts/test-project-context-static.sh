@@ -23,7 +23,12 @@ grep -Fq 'ARG DEPENDENCIES_IMAGE=' images/project/Containerfile
 grep -Fq 'FROM docker.io/library/debian:13-slim' images/base/Containerfile
 
 grep -Fq 'Project root:     /workspace' scripts/doctor.sh
-grep -Fq '/workspace/.codex/config.toml' scripts/doctor.sh
+# The project-level Codex config is optional and is documented by the
+# project instructions template above. Doctor should validate the actual
+# workspace and report optional AGENTS.md, not require a .codex config file.
+grep -Fq 'test "$(pwd -P)" = /workspace' scripts/doctor.sh
+grep -Fq 'if [ -f /workspace/AGENTS.md ]; then' scripts/doctor.sh
+grep -Fq 'Project AGENTS:   not present (optional)' scripts/doctor.sh
 
 # The project template must never become the default image-global policy.
 if grep -Eq 'CODEX_AGENTS_FILE(=| \?=)templates/AGENTS\.project\.md' .env.example Makefile images/project/Containerfile; then
